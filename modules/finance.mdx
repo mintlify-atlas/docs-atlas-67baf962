@@ -1,0 +1,120 @@
+---
+title: "Finance Module: Transactions, Expenses, and Daily Closing"
+description: "Overview of the Finance module in SCA Academia, covering the transaction lifecycle, expense tracking, daily closing workflow, and finance history views."
+---
+
+The Finance module is the central ledger for SCA Academia. It records every rupee that flows in and out of the academy — from student fee collections to staff payouts to operational expenses — and provides the owner with dashboards, history filters, and printable reports. All financial activity originates in one of two places: the [fee collection](/modules/fee-collection) flow or a manually recorded transaction.
+
+## Transaction types
+
+Every financial event is stored as a `Transaction` document with a `type` field that determines how it is reported and aggregated.
+
+| Type | Direction | Description |
+|------|-----------|-------------|
+| `INCOME` | In | Revenue collected — tuition fees, misc student payments (trip, lab, event) |
+| `EXPENSE` | Out | Cash paid out — rent, utilities, teacher payouts, salaries |
+| `CREDIT` | Internal | Teacher share allocated from a fee payment to a teacher's pending balance |
+| `LIABILITY` | Internal | Manual credit entry recording an amount the academy owes |
+| `REFUND` | Out | Reversal of a previously collected payment |
+
+### Transaction categories
+
+Categories provide a second level of classification within each type. Common categories include **Tuition**, **Teacher Payout**, **Teacher Advance**, **Teacher Salary**, **Rent**, **Utilities**, **Salaries**, **Electricity Bill**, **Stationery**, **Equipment/Asset**, and **Misc**.
+
+## Transaction status lifecycle
+
+Every transaction moves through a defined set of statuses that reflect whether the cash has been physically reconciled.
+
+```text
+FLOATING  →  VERIFIED  →  (REFUNDED)
+```
+
+- **FLOATING** — cash is in the collector's hands but has not yet been counted and confirmed. All fee income enters as `FLOATING`.
+- **VERIFIED** — cash has been reconciled during daily closing. Expense transactions are recorded directly as `VERIFIED` because they represent cash already spent.
+- **REFUNDED** — a previously collected amount has been reversed.
+
+Only `INCOME` transactions go through the `FLOATING → VERIFIED` transition. `EXPENSE` and `CREDIT` transactions are written as `VERIFIED` immediately.
+
+## Daily closing workflow
+
+Daily closing is how staff reconcile floating cash at the end of each working day. It converts all `FLOATING` income transactions into `VERIFIED` and updates teacher balances accordingly.
+
+<AccordionGroup>
+  <Accordion title="1. Review floating transactions">
+    Before closing, the staff member checks all `FLOATING` income transactions assigned to their account. These represent cash they have physically collected but not yet handed over or deposited. The total is visible in the finance dashboard as **Floating Cash**.
+  </Accordion>
+
+  <Accordion title="2. Count and verify physical cash">
+    The collector counts their on-hand cash and confirms it matches the sum of their floating transactions. Any discrepancy must be investigated before proceeding.
+  </Accordion>
+
+  <Accordion title="3. Submit the close-day request">
+    The staff member clicks the **Close Day** action, which sends a `POST /api/finance/close-day` request. The backend finds all `FLOATING` income transactions for that user, sums them, and creates a `DailyClosing` record.
+  </Accordion>
+
+  <Accordion title="4. Transactions move to VERIFIED">
+    All matching `FLOATING` transactions are bulk-updated to `status: "VERIFIED"` and linked to the `DailyClosing` document by its ID. The closing record captures the total amount, transaction count, date, and closing staff member.
+  </Accordion>
+
+  <Accordion title="5. Teacher balances update">
+    For any transaction that carries a `splitDetails.teacherId`, the teacher's `balance.floating` amount is moved to `balance.verified`. This makes the teacher's earnings available for payout requests. See [Payroll](/modules/payroll) for what happens next.
+  </Accordion>
+</AccordionGroup>
+
+## Recording expenses
+
+Staff and owners can log manual expenses directly from the Finance page. An expense requires:
+
+- **Category** — selected from the predefined list (Rent, Utilities, Salaries, etc.)
+- **Amount** — must be greater than zero
+- **Description** — a brief note about the expense
+- **Date** — defaults to today; can be adjusted for past entries
+
+Expense transactions are created with `type: "EXPENSE"` and `status: "VERIFIED"` immediately, because they represent cash that has already left the academy. They appear in the unified finance history and reduce the net profit figure on the dashboard.
+
+## Finance overview page
+
+The Finance page is organized into tabs. The overview tab surfaces:
+
+- **Monthly income** — sum of all `INCOME` transactions in the current calendar month (gross, before refunds)
+- **Monthly expenses** — sum of all `EXPENSE` transactions this month
+- **Net profit** — monthly income minus monthly expenses
+- **Floating cash** — total unverified `INCOME` still pending daily closing
+- **Pending fees** — all-time difference between total expected fees and total collected fees
+- **Teacher liabilities** — sum of all active teachers' floating + verified + pending balances
+
+A searchable transaction history table below the stats cards shows all transactions merged with expense records and teacher payment vouchers, sorted newest first.
+
+## Finance records (FinanceRecord model)
+
+In addition to the main `Transaction` collection, the system maintains a `FinanceRecord` collection for historical fee payment records. Each `FinanceRecord` stores:
+
+- `receiptId` — unique receipt identifier
+- `studentId` and `studentName` — the paying student
+- `studentClass` — class at time of payment
+- `totalFee`, `paidAmount`, `balance` — fee amounts
+- `status` — `paid`, `partial`, or `pending`
+- `paymentMethod` — cash, bank-transfer, cheque, or online
+- `month` and `year` — period the payment covers
+
+Finance records can be filtered by `status`, `month`, and `year` through the `GET /api/finance` endpoint.
+
+## Transaction history filters
+
+The finance history endpoint (`GET /api/finance/history`) accepts the following query parameters:
+
+| Parameter | Description |
+|-----------|-------------|
+| `type` | Filter by transaction type (`INCOME`, `EXPENSE`, `ALL`) |
+| `startDate` | ISO date string — lower bound for the transaction date |
+| `endDate` | ISO date string — upper bound for the transaction date |
+| `page` | Page number for pagination (default: `1`) |
+| `limit` | Results per page (default: `50`) |
+
+Results include merged data from `Transaction`, `Expense`, and `TeacherPayment` collections, all sorted by date descending.
+
+## Financial reports
+
+The owner can generate a printable financial report for a defined period via `GET /api/finance/generate-report`. Supported period values are `today`, `week`, `month`, and `custom` (requires `startDate` and `endDate`). The report includes revenue by category, expenses by category, total fees collected, net profit, and a generation timestamp.
+
+For related workflows, see [Fee collection](/modules/fee-collection) and [Payroll](/modules/payroll).

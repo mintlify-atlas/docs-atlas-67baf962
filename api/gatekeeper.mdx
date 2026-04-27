@@ -1,0 +1,197 @@
+---
+title: "Gatekeeper API — Barcode Scanning and Entry Control"
+description: "Process student barcode scans at the academy gate. Returns a colour-coded entry decision, financial summary, current timetable session, and auto-marks attendance on successful scans."
+---
+
+The Gatekeeper API powers the physical entry scanner at the academy gate. A single scan endpoint resolves a student by barcode, student ID, or receipt token; validates their enrollment status and fee standing; checks the class schedule; and — if entry is permitted — automatically marks the student as `Present` in the attendance system.
+
+The scan result is designed for immediate display on a gatekeeper terminal and includes a `statusColor` field that drives a green/orange/red indicator light.
+
+## Endpoints
+
+### Process a barcode scan
+
+```
+POST /api/gatekeeper/scan
+```
+
+The core scan endpoint. Accepts a barcode string and returns a full access decision. The endpoint will return a `403` response (not a `500`) for denied entry, so callers should handle both `2xx` and `4xx` responses as meaningful scan outcomes.
+
+**Request body**
+
+<ParamField body="barcode" type="string">
+  The scanned value. Accepts a student ID string (e.g. `"260001"`), a barcode ID, or a receipt token beginning with `TOKEN-`.
+</ParamField>
+
+<ParamField body="barcodeId" type="string">
+  Legacy alias for `barcode`. Prefer the `barcode` field in new integrations.
+</ParamField>
+
+<Warning>
+  At least one of `barcode` or `barcodeId` must be present. The value must be at least 5 characters or the request will be rejected with `400`.
+</Warning>
+
+**Example**
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.example.com/api/gatekeeper/scan \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <token>" \
+  -d '{ "barcode": "SCA-260001" }'
+```
+</CodeGroup>
+
+---
+
+### Scan outcomes
+
+There are three possible entry outcomes beyond a server error:
+
+| Outcome | HTTP status | `status` field | `scanResult.statusColor` |
+|---|---|---|---|
+| Entry permitted, fees paid, session active | `200` | `"success"` | `GREEN` |
+| Entry permitted, fees partial/no active session | `200` | `"partial"` or `"success"` | `ORANGE` |
+| Entry denied — fee defaulter, suspended, or schedule mismatch | `403` | `"defaulter"` / `"blocked"` / `"no_class_today"` / `"too_early"` / `"too_late"` | `RED` |
+
+**GREEN** — Balance is zero or negative AND a timetable session is currently active for the student's class.
+
+**ORANGE** — Balance is fully paid but there is no active timetable session right now (outside class hours or class not scheduled today).
+
+**RED** — Student has an outstanding balance, is expelled/suspended, or the current time falls outside the allowed entry window.
+
+---
+
+### Successful scan response (`200 OK`)
+
+<ResponseField name="success" type="boolean">`true`</ResponseField>
+<ResponseField name="status" type="string">`"success"` or `"partial"`</ResponseField>
+<ResponseField name="message" type="string">Human-readable result, e.g. `"Entry Permitted - Fees Paid"`.</ResponseField>
+<ResponseField name="currentSession" type="object">
+  The timetable session active at scan time, or `null` if no session is running.
+  <Expandable title="fields">
+    <ResponseField name="subject" type="string">Subject being taught.</ResponseField>
+    <ResponseField name="teacher" type="string">Teacher's name.</ResponseField>
+    <ResponseField name="room" type="string">Room identifier.</ResponseField>
+    <ResponseField name="startTime" type="string">Session start time string.</ResponseField>
+    <ResponseField name="endTime" type="string">Session end time string.</ResponseField>
+  </Expandable>
+</ResponseField>
+<ResponseField name="scanResult" type="object">
+  Structured result for the gatekeeper terminal.
+  <Expandable title="fields">
+    <ResponseField name="statusColor" type="string">`GREEN`, `ORANGE`, or `RED`.</ResponseField>
+    <ResponseField name="statusMessage" type="string">Short label for the terminal display (e.g. `"Access Granted"` or `"No Class Scheduled Now"`).</ResponseField>
+    <ResponseField name="student" type="object">
+      <Expandable title="fields">
+        <ResponseField name="id" type="string">Human-readable student ID.</ResponseField>
+        <ResponseField name="name" type="string">Student's full name.</ResponseField>
+        <ResponseField name="photoUrl" type="string">URL or base64 image for the terminal display.</ResponseField>
+        <ResponseField name="className" type="string">Class name the student is enrolled in.</ResponseField>
+      </Expandable>
+    </ResponseField>
+    <ResponseField name="financial" type="object">
+      <Expandable title="fields">
+        <ResponseField name="totalFee" type="number">Total fee for the current session (PKR).</ResponseField>
+        <ResponseField name="paidAmount" type="number">Amount paid so far (PKR).</ResponseField>
+        <ResponseField name="balance" type="number">Outstanding balance (PKR). Zero or negative means fully paid.</ResponseField>
+        <ResponseField name="status" type="string">`"PAID"` or `"PENDING"`.</ResponseField>
+      </Expandable>
+    </ResponseField>
+    <ResponseField name="session" type="object">Same shape as `currentSession` above, or `null`.</ResponseField>
+    <ResponseField name="attendance" type="object">
+      Auto-marked attendance result, or `null` if attendance marking failed non-critically.
+      <Expandable title="fields">
+        <ResponseField name="status" type="string">The attendance status recorded (typically `"Present"`).</ResponseField>
+        <ResponseField name="checkInTime" type="string">ISO 8601 check-in timestamp.</ResponseField>
+        <ResponseField name="alreadyMarked" type="boolean">`true` if the student was already checked in today; no duplicate was created.</ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+<ResponseField name="student" type="object">
+  Legacy student object retained for backward compatibility. Includes `_id`, `studentId`, `barcodeId`, `name`, `fatherName`, `class`, `group`, `photo`, `feeStatus`, `totalFee`, `paidAmount`, `balance`, `studentStatus`, and `enrolledClasses`.
+</ResponseField>
+<ResponseField name="schedule" type="object">
+  Class schedule context: `classStartTime`, `classEndTime`, `classDays`, `currentTime`, and `teacherName`.
+</ResponseField>
+<ResponseField name="scannedAt" type="string">ISO 8601 server-side scan timestamp.</ResponseField>
+
+---
+
+### Denied entry response (`403 Forbidden`)
+
+When entry is denied the response body still contains student and schedule information for display on the terminal.
+
+<ResponseField name="success" type="boolean">`false`</ResponseField>
+<ResponseField name="status" type="string">
+  Denial reason code: `"defaulter"`, `"blocked"`, `"no_class_today"`, `"too_early"`, or `"too_late"`.
+</ResponseField>
+<ResponseField name="message" type="string">Human-readable denial message.</ResponseField>
+<ResponseField name="reason" type="string">Uppercase denial code matching `status`.</ResponseField>
+<ResponseField name="student" type="object">Student summary for terminal display.</ResponseField>
+<ResponseField name="schedule" type="object">Schedule context (for `too_early` / `too_late` / `no_class_today` outcomes).</ResponseField>
+
+---
+
+### Search a student manually
+
+```
+GET /api/gatekeeper/search
+```
+
+Full-text search across student name, student ID, parent phone, and barcode ID. Useful for manual lookup at the gate when the barcode cannot be read.
+
+**Query parameters**
+
+<ParamField query="query" type="string" required>
+  Search string (minimum 2 characters).
+</ParamField>
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="count" type="number">Number of matches (capped at 10).</ResponseField>
+<ResponseField name="data" type="object[]">
+  Matching students with `studentId`, `barcodeId`, `studentName`, `fatherName`, `class`, `group`, `photo`, `feeStatus`, and `studentStatus`.
+</ResponseField>
+
+---
+
+### Generate a barcode for a student
+
+```
+POST /api/gatekeeper/generate-barcode/:id
+```
+
+Generates or regenerates a unique barcode ID for a student. Requires the `OWNER`, `OPERATOR`, or `ADMIN` role.
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>MongoDB ObjectId of the student.</ParamField>
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="barcodeId" type="string">The newly generated barcode string.</ResponseField>
+<ResponseField name="student" type="object">Student summary with `_id`, `studentId`, `name`, and `barcodeId`.</ResponseField>
+
+---
+
+### Record a barcode reprint
+
+```
+POST /api/gatekeeper/reprint/:id
+```
+
+Increments the `reprintCount` on a student record for anti-fraud audit tracking. Requires the `OWNER`, `OPERATOR`, or `ADMIN` role.
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>MongoDB ObjectId of the student.</ParamField>
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="message" type="string">e.g. `"Reprint recorded. This is copy #3"`</ResponseField>
+<ResponseField name="reprintCount" type="number">Updated reprint count.</ResponseField>

@@ -1,0 +1,198 @@
+---
+title: System Architecture — How SCA Academia Is Built
+description: Deep dive into the MERN stack structure, backend route registration, frontend layout, authentication design, and core data lifecycle flows.
+---
+
+SCA Academia is a full-stack MERN application split into two independent processes: a Node.js/Express REST API backed by MongoDB, and a React 18/Vite single-page application that communicates with the API exclusively over HTTP. The two sides share no code at runtime — the frontend consumes the API through TanStack Query, which handles caching, background refetching, and optimistic updates.
+
+## MERN stack overview
+
+| Layer | Technology | Version |
+|---|---|---|
+| Runtime | Node.js | ≥ 14 |
+| HTTP framework | Express | 5 |
+| Database | MongoDB | Atlas or local |
+| ODM | Mongoose | 9 |
+| UI framework | React | 18 |
+| Build tool | Vite | 5 |
+| Language (frontend) | TypeScript | 5 |
+| Styling | Tailwind CSS + shadcn/ui | 3 / latest |
+| Server state | TanStack Query | v5 |
+
+## Backend structure
+
+The `backend/` directory follows an MVC-adjacent layout with routes, controllers, models, and middleware as separate concerns.
+
+```
+backend/
+├── server.js              # Entry point: connects DB, registers middleware + routes
+├── seed.js                # Seeds core user accounts
+├── models/                # Mongoose schemas (Student, Teacher, User, Finance, …)
+├── routes/                # Express routers — one file per domain
+├── controllers/           # Business logic called by routers
+├── middleware/
+│   └── authMiddleware.js  # JWT verification and RBAC (protect, restrictTo)
+├── uploads/               # Static files served at /uploads
+└── logs/                  # PM2 log output (production)
+```
+
+### Route registration in server.js
+
+Every domain module is mounted at a dedicated `/api/*` prefix. The full registration block from `server.js`:
+
+```javascript
+// server.js — route registration (lines 83–102)
+app.use("/api/auth",           authRoutes);
+app.use("/api/students",       studentRoutes);
+app.use("/api/teachers",       teacherRoutes);
+app.use("/api/finance",        financeRoutes);
+app.use("/api/config",         configRoutes);
+app.use("/api/classes",        classRoutes);
+app.use("/api/sessions",       sessionRoutes);
+app.use("/api/timetable",      timetableRoutes);
+app.use("/api/expenses",       expenseRoutes);
+app.use("/api/website",        websiteRoutes);
+app.use("/api/payroll",        payrollRoutes);
+app.use("/api/leads",          leadRoutes);
+// Phase 2 & 3: Security & LMS
+app.use("/api/gatekeeper",     gatekeeperRoutes);
+app.use("/api/attendance",     attendanceRoutes);
+app.use("/api/public",         publicRoutes);
+app.use("/api/student-portal", studentPortalRoutes);
+app.use("/api/notifications",  notificationRoutes);
+app.use("/api/inventory",      inventoryRoutes);
+```
+
+<Note>
+  CORS is configured with `origin: true` (allow all origins) and `credentials: true`. This intentional permissiveness is required for GitHub Codespaces compatibility, where the frontend and backend run on dynamically allocated subdomains. Restrict `origin` to your specific domain(s) before going to production.
+</Note>
+
+### Middleware order
+
+The order of middleware registration in `server.js` is intentional and must not be changed:
+
+1. `cors()` — must run before any route or body parser
+2. `express.json({ limit: "50mb" })` — parses JSON bodies; 50 MB limit supports Base64-encoded images
+3. `cookieParser()` — must run before auth middleware reads `req.cookies`
+4. `express.urlencoded()` — handles form-encoded bodies
+5. Static file serving at `/uploads`
+6. Debug request logger
+7. API route handlers
+
+## Frontend structure
+
+The `frontend/src/` directory separates concerns by type:
+
+```
+frontend/src/
+├── main.tsx               # React root, QueryClient and AuthContext providers
+├── App.tsx                # React Router route definitions
+├── pages/                 # One file per route/screen
+│   ├── Dashboard.tsx
+│   ├── Students.tsx
+│   ├── Finance.tsx
+│   ├── Teachers.tsx
+│   ├── Payroll.tsx
+│   ├── Attendance.tsx
+│   ├── Timetable.tsx
+│   ├── Gatekeeper.tsx
+│   ├── Inventory.tsx
+│   ├── Leads.tsx
+│   ├── StudentPortal.tsx
+│   ├── Login.tsx
+│   └── …
+├── components/            # Reusable UI components (forms, tables, dialogs)
+├── context/
+│   └── AuthContext.tsx    # Global auth state: current user, login/logout helpers
+├── hooks/                 # Custom React hooks (usePDFReceipt, useIDCardPDF, …)
+├── config/                # API base URL and shared constants
+└── lib/                   # Utility functions (cn, date helpers)
+```
+
+## Authentication and security
+
+Authentication is JWT-based with tokens stored exclusively in **HTTP-only cookies** — they are never written to `localStorage` or exposed to JavaScript. The `cookie-parser` middleware makes the token available to `authMiddleware.js` via `req.cookies.authToken`.
+
+The middleware actively **rejects** any request that sends a token in the request body, returning `403 Forbidden` with a security violation message. This prevents accidental or malicious token leakage through API clients that serialize credentials into request bodies.
+
+```javascript
+// middleware/authMiddleware.js — protect pattern
+const protect = async (req, res, next) => {
+  const token = req.cookies.authToken; // cookies only — never req.body
+  if (!token) return res.status(401).json({ message: "Authentication required." });
+  const decoded = jwt.verify(token, process.env.JWT_SECRET);
+  req.user = await User.findById(decoded.id);
+  next();
+};
+
+const restrictTo = (...roles) => (req, res, next) => {
+  if (!roles.includes(req.user.role))
+    return res.status(403).json({ message: "Insufficient permissions." });
+  next();
+};
+```
+
+<Accordion title="Role hierarchy — OWNER, PARTNER, STAFF">
+
+  **OWNER**
+  - Full system access across all modules
+  - Can create, activate, and deactivate STAFF accounts
+  - Manages expense distribution to partners
+  - Accesses all financial data including aggregate partner views
+  - Core account: `canBeDeleted: false` — cannot be removed via the API
+
+  **PARTNER**
+  - Views only their own revenue stream and wallet balance
+  - Can perform the **daily closing** operation that moves `floatingCash` into confirmed `walletBalance`
+  - Sees their own `pendingDebt` (owed to the OWNER for shared expenses)
+  - Cannot view other partners' financial data
+  - Core account: `canBeDeleted: false`
+
+  **STAFF / OPERATOR**
+  - Operational access: student enrollment, fee collection, attendance, gatekeeper
+  - No financial visibility — payroll, expense, and partner data is hidden
+  - Accounts are created and managed exclusively by the OWNER
+  - Can be activated or deactivated via `PATCH /api/auth/staff/:id/toggle`
+
+  Each `User` document also carries financial fields used during daily operations:
+  - `walletBalance` — confirmed, closed cash
+  - `floatingCash` — collected during the day but not yet "closed"
+  - `pendingDebt` — amount owed back to the OWNER for distributed expenses
+
+</Accordion>
+
+## Data flow
+
+A typical read/write cycle from the browser to the database follows this path:
+
+```
+React component
+  → TanStack Query (useQuery / useMutation)
+    → fetch() to REST API (VITE_API_URL/api/*)
+      → Express router (routes/*.js)
+        → Controller function (controllers/*.js)
+          → Mongoose model (models/*.js)
+            → MongoDB document store
+```
+
+TanStack Query manages the client-side cache. After a successful mutation (creating a student, recording a payment), the relevant query keys are invalidated so the UI refetches fresh data automatically without a page reload.
+
+## Transaction and fee lifecycles
+
+Two domain-specific state machines drive the core financial logic:
+
+**Transaction lifecycle (finance module)**
+
+```
+FLOATING  →  VERIFIED
+```
+
+Transactions start as `FLOATING` when a fee is collected during the day. The PARTNER or OWNER runs a **daily closing** operation which confirms all floating transactions for that session, moving them to `VERIFIED` and adding the totals to `walletBalance`. This separates in-progress collections from confirmed revenue.
+
+**Student fee status lifecycle**
+
+```
+pending  →  partial  →  paid
+```
+
+When a student's `paidAmount` is zero the fee status is `pending`. Any partial payment moves it to `partial`. When `paidAmount` equals `totalFee` the status becomes `paid`. The `balance` field is a Mongoose virtual (`totalFee - paidAmount`) and is never persisted.

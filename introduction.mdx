@@ -1,0 +1,82 @@
+---
+title: SCA Academia — Academy Management System Overview
+description: A full-stack MERN ERP for coaching academies covering students, finance, payroll, attendance, timetable, inventory, and more.
+---
+
+SCA Academia is an end-to-end ERP built specifically for coaching academies. It replaces paper registers and spreadsheets with a unified system that tracks every student, rupee, and staff member from a single dashboard. The platform is used daily by owners, financial partners, and front-desk staff across all operational areas of the academy.
+
+<Note>
+  SCA Academia uses a three-tier role model: **OWNER** has full system access including expense distribution and staff management; **PARTNER** sees only their own revenue stream and can perform daily closings; **STAFF/OPERATOR** has operational access only with no financial visibility. All roles are enforced at the API level via JWT middleware.
+</Note>
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Student Management" icon="graduation-cap" href="/modules/students">
+    Enroll students, track fee status (pending → partial → paid), generate ID cards and PDF receipts, and filter by class, group, or subject.
+  </Card>
+  <Card title="Finance & Transactions" icon="coins" href="/modules/finance">
+    Record fee collections with a FLOATING → VERIFIED lifecycle, run daily closings to confirm cash, and view per-partner revenue streams.
+  </Card>
+  <Card title="Teacher & Payroll" icon="chalkboard-teacher" href="/modules/payroll">
+    Manage teacher profiles with configurable revenue-share percentages, generate monthly payroll, and produce printable payment vouchers.
+  </Card>
+  <Card title="Admissions & Leads" icon="user-plus" href="/modules/admissions">
+    Capture prospective student leads from the public registration form, track follow-up status, and convert leads directly into enrolled students.
+  </Card>
+  <Card title="Classes & Timetable" icon="calendar" href="/modules/classes">
+    Build weekly class timetables, schedule sessions per teacher and subject, and make schedules available on the public-facing website.
+  </Card>
+  <Card title="Attendance & Gatekeeper" icon="door-open" href="/modules/attendance">
+    Mark student and teacher attendance, scan barcoded student cards at the entry kiosk, and view real-time presence reports.
+  </Card>
+  <Card title="Users & Roles" icon="shield-halved" href="/modules/users-roles">
+    Manage staff accounts, assign module permissions, and understand the OWNER/PARTNER/STAFF role hierarchy.
+  </Card>
+  <Card title="Student Portal" icon="user-circle" href="/modules/student-portal">
+    Give students a self-service view of their fee history, class schedule, and notices — accessible via a separate portal login.
+  </Card>
+</CardGroup>
+
+## Module Overview
+
+| Module | Route Prefix | Description |
+|---|---|---|
+| Authentication | `/api/auth` | Login, logout, staff creation, role enforcement |
+| Students | `/api/students` | Enrollment, profiles, fee status, ID cards |
+| Teachers | `/api/teachers` | Teacher records, subjects, revenue share |
+| Finance | `/api/finance` | Fee transactions, daily closing, receipts |
+| Payroll | `/api/payroll` | Monthly salary calculation and vouchers |
+| Expenses | `/api/expenses` | Operational expense tracking and distribution |
+| Classes | `/api/classes` | Class definitions and subject groupings |
+| Sessions | `/api/sessions` | Scheduled teaching sessions |
+| Timetable | `/api/timetable` | Weekly schedule builder |
+| Leads | `/api/leads` | Prospective student pipeline |
+| Gatekeeper | `/api/gatekeeper` | Entry/exit barcode scanning |
+| Attendance | `/api/attendance` | Daily attendance registers |
+| Inventory | `/api/inventory` | Asset and stock management |
+| Notifications | `/api/notifications` | System-wide announcements |
+| Student Portal | `/api/student-portal` | Self-service student access |
+| Public | `/api/public` | Unauthenticated landing and registration |
+| Config | `/api/config` | Academy-wide settings |
+
+## Tech Stack
+
+The system is built on the **MERN stack** with a clear separation between backend services and the frontend application.
+
+**Backend**
+- **Node.js + Express 5** — HTTP server and REST API
+- **MongoDB + Mongoose 9** — Document database and ODM
+- **jsonwebtoken + bcryptjs** — Authentication and password hashing
+- **cookie-parser** — HTTP-only cookie handling
+- **multer** — File and image uploads (up to 50 MB)
+
+**Frontend**
+- **React 18 + Vite** — Component framework and build tool
+- **TypeScript** — Type-safe component authoring
+- **Tailwind CSS + shadcn/ui (Radix UI)** — Design system and accessible primitives
+- **TanStack Query (React Query v5)** — Server-state caching and synchronization
+- **React Router v6** — Client-side routing
+- **React Hook Form + Zod** — Form handling and validation
+- **Recharts** — Dashboard charts and financial graphs
+- **@react-pdf/renderer** — In-browser PDF generation for receipts and payslips

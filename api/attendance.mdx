@@ -1,0 +1,264 @@
+---
+title: "Attendance API — Daily Tracking and Student History"
+description: "Mark, retrieve, and correct student attendance. Supports real-time daily summaries, date-range reports with daily breakdowns, 90-day individual histories, and bulk absent marking."
+---
+
+The Attendance API tracks daily student presence at the academy. Records are created automatically when a student scans their barcode at the gate, or manually from the admin dashboard. Each student can have only one attendance record per calendar day (enforced by a unique compound index). All dates and times use Pakistan Standard Time (UTC+5).
+
+## Endpoints
+
+### Get today's attendance
+
+```
+GET /api/attendance/today
+```
+
+Returns a summary of today's attendance statistics plus the full list of records marked so far today. Absent count is derived by subtracting present, late, and excused from the total enrolled student count.
+
+**Query parameters**
+
+<ParamField query="classFilter" type="string">
+  Class name string to restrict results to a single class. Omit or pass `"all"` for academy-wide data.
+</ParamField>
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="date" type="string">Today's date normalized to midnight PKT (ISO 8601).</ResponseField>
+<ResponseField name="stats" type="object">
+  <Expandable title="fields">
+    <ResponseField name="total" type="number">Total enrolled active students (matching the optional class filter).</ResponseField>
+    <ResponseField name="present" type="number">Students marked Present today.</ResponseField>
+    <ResponseField name="late" type="number">Students marked Late today.</ResponseField>
+    <ResponseField name="excused" type="number">Students marked Excused today.</ResponseField>
+    <ResponseField name="absent" type="number">Enrolled students with no record yet (`total − present − late − excused`). Floored at 0.</ResponseField>
+    <ResponseField name="attendanceRate" type="number">Percentage of students present or late (0–100).</ResponseField>
+  </Expandable>
+</ResponseField>
+<ResponseField name="records" type="Attendance[]">
+  Attendance records sorted by `checkInTime` descending. Each record has a populated `student` field with `studentName`, `studentId`, `class`, `group`, `photo`, `imageUrl`, and `feeStatus`.
+</ResponseField>
+
+---
+
+### Mark attendance manually
+
+```
+POST /api/attendance/mark
+```
+
+Creates an attendance record for a student for today. If a record already exists for the student today, the endpoint returns `200 OK` with `alreadyMarked: true` instead of creating a duplicate.
+
+The `studentId` field accepts a MongoDB ObjectId, a human-readable student ID string, or a barcode ID — the system searches all three.
+
+**Request body**
+
+<ParamField body="studentId" type="string" required>
+  MongoDB ObjectId, student ID string, or barcode ID of the student.
+</ParamField>
+
+<ParamField body="status" type="string">
+  Attendance status. One of `Present`, `Absent`, `Late`, `Excused`. Defaults to `Present`.
+</ParamField>
+
+<ParamField body="notes" type="string">
+  Optional notes for the record.
+</ParamField>
+
+<ParamField body="markedBy" type="string">
+  Who is marking the attendance. Defaults to `"Admin"`.
+</ParamField>
+
+**Response** — `201 Created` (new record) or `200 OK` (already marked)
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="alreadyMarked" type="boolean">
+  `true` if the student was already checked in today. When `true`, no new record is created.
+</ResponseField>
+<ResponseField name="message" type="string">Human-readable result message including the student name and status.</ResponseField>
+<ResponseField name="attendance" type="object">
+  The attendance record (new or existing). See [Attendance fields](#attendance-fields).
+</ResponseField>
+
+---
+
+### Get attendance by date range
+
+```
+GET /api/attendance/range
+```
+
+Returns all attendance records between two dates, grouped into a daily summary map.
+
+**Query parameters**
+
+<ParamField query="from" type="string" required>
+  Start date in `YYYY-MM-DD` format.
+</ParamField>
+
+<ParamField query="to" type="string" required>
+  End date in `YYYY-MM-DD` format (inclusive, extended to 23:59:59).
+</ParamField>
+
+<ParamField query="classFilter" type="string">
+  Class name to restrict results. Omit or pass `"all"` for all classes.
+</ParamField>
+
+<ParamField query="studentId" type="string">
+  Student ID string to restrict results to a single student.
+</ParamField>
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="from" type="string">Resolved start date (ISO 8601).</ResponseField>
+<ResponseField name="to" type="string">Resolved end date (ISO 8601).</ResponseField>
+<ResponseField name="totalRecords" type="number">Total attendance records in the range.</ResponseField>
+<ResponseField name="dailySummary" type="object">
+  Key-value map where each key is a `YYYY-MM-DD` date string and each value is an object with `present`, `late`, `excused`, `absent`, and `total` counts.
+</ResponseField>
+<ResponseField name="records" type="Attendance[]">
+  Full attendance records sorted by date and check-in time descending, with populated `student` references.
+</ResponseField>
+
+---
+
+### Get a student's attendance history
+
+```
+GET /api/attendance/student/:id
+```
+
+Returns up to 90 days of attendance history for one student, sorted newest-first.
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>
+  MongoDB ObjectId or student ID string.
+</ParamField>
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="student" type="object">
+  <Expandable title="fields">
+    <ResponseField name="id" type="string">MongoDB ObjectId.</ResponseField>
+    <ResponseField name="studentId" type="string">Human-readable student ID.</ResponseField>
+    <ResponseField name="name" type="string">Student's full name.</ResponseField>
+    <ResponseField name="class" type="string">Class name.</ResponseField>
+    <ResponseField name="group" type="string">Academic group (e.g. Pre-Medical).</ResponseField>
+  </Expandable>
+</ResponseField>
+<ResponseField name="stats" type="object">
+  <Expandable title="fields">
+    <ResponseField name="total" type="number">Total records in the 90-day window.</ResponseField>
+    <ResponseField name="present" type="number">Days marked Present.</ResponseField>
+    <ResponseField name="late" type="number">Days marked Late.</ResponseField>
+    <ResponseField name="excused" type="number">Days marked Excused.</ResponseField>
+    <ResponseField name="absent" type="number">Days marked Absent.</ResponseField>
+    <ResponseField name="attendanceRate" type="number">Percentage present or late (0–100).</ResponseField>
+  </Expandable>
+</ResponseField>
+<ResponseField name="records" type="Attendance[]">90-day attendance records.</ResponseField>
+
+---
+
+### Update an attendance record
+
+```
+PUT /api/attendance/:id
+```
+
+Admin correction — updates the status and/or notes on an existing record. Requires the `OWNER` or `ADMIN` role.
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>
+  MongoDB ObjectId of the attendance record.
+</ParamField>
+
+**Request body**
+
+<ParamField body="status" type="string">
+  New status: `Present`, `Absent`, `Late`, or `Excused`.
+</ParamField>
+
+<ParamField body="notes" type="string">
+  Updated notes.
+</ParamField>
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="message" type="string">e.g. `"Attendance updated to Absent"`</ResponseField>
+<ResponseField name="attendance" type="object">Updated attendance record.</ResponseField>
+
+---
+
+### Bulk mark absentees
+
+```
+POST /api/attendance/mark-absent
+```
+
+Marks all active students who have no attendance record for today as `Absent`. This is typically called at the end of the day. Requires the `OWNER` or `ADMIN` role.
+
+**Request body**
+
+<ParamField body="classFilter" type="string">
+  Class name to restrict marking to one class. Omit or pass `"all"` for all active students.
+</ParamField>
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="message" type="string">e.g. `"Marked 12 students as absent"`</ResponseField>
+<ResponseField name="markedCount" type="number">Students newly marked absent.</ResponseField>
+<ResponseField name="totalStudents" type="number">Total active students considered.</ResponseField>
+<ResponseField name="alreadyCheckedIn" type="number">Students who already had a record today.</ResponseField>
+
+---
+
+### List classes for filter dropdown
+
+```
+GET /api/attendance/classes
+```
+
+Returns all active classes sorted alphabetically by `classTitle`. Intended for populating filter dropdowns.
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="classes" type="object[]">
+  Array of objects with `_id`, `classTitle`, and `className`.
+</ResponseField>
+
+---
+
+## Attendance fields
+
+<ResponseField name="_id" type="string">MongoDB ObjectId.</ResponseField>
+<ResponseField name="student" type="string">ObjectId reference to the Student.</ResponseField>
+<ResponseField name="studentId" type="string">Human-readable student ID (denormalised).</ResponseField>
+<ResponseField name="studentName" type="string">Student's full name (denormalised).</ResponseField>
+<ResponseField name="class" type="string">Class name string (denormalised).</ResponseField>
+<ResponseField name="classRef" type="string">ObjectId reference to the Class document.</ResponseField>
+<ResponseField name="date" type="string">Date of attendance normalized to midnight PKT (ISO 8601).</ResponseField>
+<ResponseField name="status" type="string">`Present`, `Absent`, `Late`, or `Excused`.</ResponseField>
+<ResponseField name="checkInTime" type="string">ISO 8601 timestamp of when the student scanned or was marked in.</ResponseField>
+<ResponseField name="checkOutTime" type="string">ISO 8601 checkout timestamp (optional).</ResponseField>
+<ResponseField name="markedBy" type="string">`Gatekeeper`, `Admin`, or `System`.</ResponseField>
+<ResponseField name="markedByUser" type="string">ObjectId of the User who created the record.</ResponseField>
+<ResponseField name="session" type="object">
+  Timetable session active at check-in time (if available).
+  <Expandable title="fields">
+    <ResponseField name="subject" type="string">Subject name.</ResponseField>
+    <ResponseField name="teacher" type="string">Teacher name.</ResponseField>
+    <ResponseField name="room" type="string">Room identifier.</ResponseField>
+    <ResponseField name="startTime" type="string">Session start time string.</ResponseField>
+    <ResponseField name="endTime" type="string">Session end time string.</ResponseField>
+  </Expandable>
+</ResponseField>
+<ResponseField name="notes" type="string">Free-text notes.</ResponseField>
+<ResponseField name="createdAt" type="string">ISO 8601 creation timestamp.</ResponseField>

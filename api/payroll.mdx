@@ -1,0 +1,300 @@
+---
+title: "Payroll API — Teacher Payout Requests and Salary Processing"
+description: "Submit and manage teacher payout requests, approve or reject them as an owner, generate fixed-salary accruals for a session, and retrieve per-teacher earnings breakdowns."
+---
+
+The Payroll API handles the full lifecycle of paying teachers. Teachers submit payout requests against their verified balance; the owner approves or rejects them. Approval deducts the amount from the teacher's `balance.verified`, creates an `EXPENSE` transaction in the ledger, and notifies the teacher.
+
+<Note>
+  Payouts can only be approved against a teacher's **verified** balance — funds that have passed through the day-close process. Floating (unverified) cash cannot be paid out until the day is closed by the collector.
+</Note>
+
+## Endpoints
+
+### Submit a payout request
+
+```
+POST /api/payroll/request
+```
+
+A teacher submits a request to withdraw cash from their verified balance. Only one `PENDING` request per teacher is allowed at a time.
+
+**Request body**
+
+<ParamField body="teacherId" type="string" required>
+  MongoDB ObjectId of the requesting teacher.
+</ParamField>
+
+<ParamField body="amount" type="number" required>
+  Amount to withdraw in PKR. Must be greater than 0 and must not exceed the teacher's current `balance.verified`.
+</ParamField>
+
+**Response** — `201 Created`
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="message" type="string">Confirmation message with the requested amount.</ResponseField>
+<ResponseField name="data" type="object">The created PayoutRequest document. See [PayoutRequest fields](#payoutrequest-fields).</ResponseField>
+
+---
+
+### List all payout requests
+
+```
+GET /api/payroll/requests
+```
+
+Returns all payout requests visible to the owner. Supports optional filters. Requires the `OWNER` role.
+
+**Query parameters**
+
+<ParamField query="status" type="string">
+  Filter by request status: `PENDING`, `APPROVED`, or `REJECTED`.
+</ParamField>
+
+<ParamField query="teacherId" type="string">
+  Filter by teacher ObjectId.
+</ParamField>
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="count" type="number">Number of requests returned.</ResponseField>
+<ResponseField name="summary" type="object">
+  <Expandable title="fields">
+    <ResponseField name="pendingCount" type="number">Total requests with `PENDING` status.</ResponseField>
+    <ResponseField name="pendingTotal" type="number">Sum of all pending request amounts (PKR).</ResponseField>
+  </Expandable>
+</ResponseField>
+<ResponseField name="data" type="PayoutRequest[]">Array of payout request objects with populated teacher and approver references.</ResponseField>
+
+---
+
+### Get a teacher's own payout requests
+
+```
+GET /api/payroll/my-requests/:teacherId
+```
+
+Returns the 20 most recent payout requests for a specific teacher.
+
+**Path parameters**
+
+<ParamField path="teacherId" type="string" required>
+  MongoDB ObjectId of the teacher.
+</ParamField>
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="count" type="number" />
+<ResponseField name="data" type="PayoutRequest[]" />
+
+---
+
+### Approve a payout request
+
+```
+POST /api/payroll/approve/:requestId
+```
+
+Approves a `PENDING` payout request. On approval the system:
+
+1. Deducts the requested amount from `teacher.balance.verified`.
+2. Creates an `EXPENSE / Salaries` transaction in the ledger.
+3. Creates an Expense record for accounting.
+4. Updates the request status to `APPROVED`.
+5. Notifies the teacher.
+
+Requires the `OWNER` role.
+
+**Path parameters**
+
+<ParamField path="requestId" type="string" required>
+  MongoDB ObjectId of the PayoutRequest.
+</ParamField>
+
+**Request body**
+
+<ParamField body="notes" type="string">
+  Optional approval notes (defaults to `"Approved by Owner"`).
+</ParamField>
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="message" type="string">Confirmation message with teacher name and amount.</ResponseField>
+<ResponseField name="data" type="object">
+  <Expandable title="fields">
+    <ResponseField name="payoutRequest" type="object">Updated payout request document.</ResponseField>
+    <ResponseField name="transaction" type="object">The EXPENSE transaction created.</ResponseField>
+    <ResponseField name="expense" type="object">The Expense record created.</ResponseField>
+    <ResponseField name="newTeacherBalance" type="number">Remaining verified balance after deduction (PKR).</ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+### Reject a payout request
+
+```
+POST /api/payroll/reject/:requestId
+```
+
+Rejects a `PENDING` payout request. No balance changes occur. The teacher is notified with the rejection reason. Requires the `OWNER` role.
+
+**Path parameters**
+
+<ParamField path="requestId" type="string" required>
+  MongoDB ObjectId of the PayoutRequest.
+</ParamField>
+
+**Request body**
+
+<ParamField body="reason" type="string">
+  Rejection reason sent to the teacher (defaults to `"Rejected by Owner"`).
+</ParamField>
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="message" type="string">`"Payout request rejected"`</ResponseField>
+<ResponseField name="data" type="object">Updated payout request document.</ResponseField>
+
+---
+
+### Get payroll dashboard
+
+```
+GET /api/payroll/dashboard
+```
+
+Returns aggregated payroll stats for the active session including per-teacher balances, total earned, total withdrawn, and overall liability. Requires the `OWNER` role.
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="data" type="object">
+  <Expandable title="fields">
+    <ResponseField name="activeSession" type="object">The currently active academic session document.</ResponseField>
+    <ResponseField name="totalPaidSession" type="number">Total paid to teachers in the active session (PKR).</ResponseField>
+    <ResponseField name="totalTeacherLiability" type="number">Sum of all teachers' payable balances (PKR).</ResponseField>
+    <ResponseField name="teachersWithBalances" type="object[]">
+      Per-teacher payroll objects including `balance`, `totalEarned`, `totalWithdrawn`, and `netPayable`.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+### Get earnings breakdown
+
+```
+GET /api/payroll/earnings-breakdown
+```
+
+Returns a detailed, real-time earnings breakdown per teacher derived from `LIABILITY / Payroll_Credit` transactions across all active sessions. Includes per-class and per-student detail. Requires the `OWNER` role.
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="data" type="object">
+  <Expandable title="fields">
+    <ResponseField name="session" type="object">Primary active session.</ResponseField>
+    <ResponseField name="totalAcademyPool" type="number">Total academy share accumulated across all active sessions (PKR).</ResponseField>
+    <ResponseField name="teachers" type="object[]">
+      Array of teacher earnings objects, each with `breakdown` (per-class detail) and `alreadyCredited` (current pending balance).
+    </ResponseField>
+    <ResponseField name="academyPoolBreakdown" type="object[]">Per-class breakdown of the academy's share.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+### Generate session salaries (fixed-salary teachers)
+
+```
+POST /api/payroll/generate-session-salaries
+```
+
+Accrues fixed salaries for the active session. For each active teacher on a `fixed` compensation plan, the system adds the fixed salary to `balance.pending` and records a `salaryAccruals` entry on the teacher — preventing double-crediting if the endpoint is called more than once per session. Requires the `OWNER` role.
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="message" type="string">Number of teachers credited.</ResponseField>
+<ResponseField name="data" type="object">
+  <Expandable title="fields">
+    <ResponseField name="session" type="object">Active session document.</ResponseField>
+    <ResponseField name="createdCount" type="number">Number of teachers whose salaries were accrued.</ResponseField>
+    <ResponseField name="created" type="object[]">Array of `{ teacherId, teacherName, amount }` for each credited teacher.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+### Get teacher payroll report
+
+```
+GET /api/payroll/teacher-report/:teacherId
+```
+
+Returns a full payroll report for one teacher in the active session: compensation details, income transactions, class-level revenue breakdown, payout history, and current balances. Requires the `OWNER` role.
+
+**Path parameters**
+
+<ParamField path="teacherId" type="string" required>MongoDB ObjectId of the teacher.</ParamField>
+
+---
+
+### Manual credit
+
+```
+POST /api/payroll/credit
+```
+
+Manually adds a credit to a teacher's `balance.pending`. Creates a `LIABILITY / Payroll_Credit` transaction in the ledger (records the debt, no cash movement) and notifies the owner. Requires the `OWNER` role.
+
+**Request body**
+
+<ParamField body="teacherId" type="string" required>
+  MongoDB ObjectId of the teacher.
+</ParamField>
+
+<ParamField body="amount" type="number" required>
+  Amount to credit in PKR (must be greater than 0).
+</ParamField>
+
+<ParamField body="description" type="string">
+  Optional note shown on the liability transaction.
+</ParamField>
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="message" type="string">Confirmation with teacher name and amount.</ResponseField>
+<ResponseField name="data" type="object">
+  <Expandable title="fields">
+    <ResponseField name="teacherName" type="string" />
+    <ResponseField name="creditedAmount" type="number" />
+    <ResponseField name="newPendingBalance" type="number">Updated `balance.pending` after the credit (PKR).</ResponseField>
+    <ResponseField name="totalBalance" type="object">Full balance object: `floating`, `verified`, `pending`.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## PayoutRequest fields
+
+<ResponseField name="_id" type="string">MongoDB ObjectId.</ResponseField>
+<ResponseField name="teacherId" type="string">ObjectId reference to the Teacher.</ResponseField>
+<ResponseField name="teacherName" type="string">Denormalised teacher name.</ResponseField>
+<ResponseField name="amount" type="number">Requested payout amount (PKR).</ResponseField>
+<ResponseField name="status" type="string">`PENDING`, `APPROVED`, or `REJECTED`.</ResponseField>
+<ResponseField name="requestDate" type="string">ISO 8601 timestamp when the request was submitted.</ResponseField>
+<ResponseField name="approvedBy" type="string">ObjectId of the owner who approved (populated on approval).</ResponseField>
+<ResponseField name="approvedAt" type="string">ISO 8601 approval timestamp.</ResponseField>
+<ResponseField name="approvalNotes" type="string">Notes left by the approver.</ResponseField>
+<ResponseField name="rejectedBy" type="string">ObjectId of the owner who rejected (populated on rejection).</ResponseField>
+<ResponseField name="rejectedAt" type="string">ISO 8601 rejection timestamp.</ResponseField>
+<ResponseField name="rejectionReason" type="string">Reason provided by the owner.</ResponseField>
+<ResponseField name="transactionId" type="string">ObjectId of the EXPENSE transaction created on approval.</ResponseField>

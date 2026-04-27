@@ -1,0 +1,357 @@
+---
+title: Students — Enrollment, Profiles, and Fee Tracking
+description: Create and manage student records, filter and search enrollments, and retrieve automatically computed fee status and balance information.
+---
+
+The Students API provides full CRUD access to student records. Each student has a computed `feeStatus` and a virtual `balance` field derived from `totalFee` and `paidAmount` — these are recalculated automatically on every save and cannot be set manually. Fee payments are recorded through the dedicated [Fee Records](/api/fee-records) endpoints.
+
+## Student object
+
+<ResponseField name="_id" type="string" required>
+  MongoDB document ID.
+</ResponseField>
+
+<ResponseField name="studentId" type="string" required>
+  Auto-generated sequential numeric identifier (e.g., `"1"`, `"2"`, `"42"`). Set by the pre-save hook — never send this field on create requests.
+</ResponseField>
+
+<ResponseField name="barcodeId" type="string">
+  Unique physical card identifier in `SCA-YYYY-NNN` format (e.g., `"SCA-2026-001"`). Used for gate scanning and ID card printing.
+</ResponseField>
+
+<ResponseField name="studentName" type="string" required>
+  The student's full name.
+</ResponseField>
+
+<ResponseField name="fatherName" type="string" required>
+  The student's father's full name.
+</ResponseField>
+
+<ResponseField name="class" type="string" required>
+  The class name string (e.g., `"9th Grade - Medical"`).
+</ResponseField>
+
+<ResponseField name="group" type="string" required>
+  Academic group (e.g., `"Pre-Medical"`, `"Pre-Engineering"`).
+</ResponseField>
+
+<ResponseField name="subjects" type="object[]">
+  Subjects enrolled at admission, with prices locked at that time.
+  <Expandable title="properties">
+    <ResponseField name="name" type="string">
+      Subject name.
+    </ResponseField>
+    <ResponseField name="fee" type="number">
+      Per-subject fee locked at admission.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="phone" type="string">
+  Parent or guardian contact number (`parentCell`).
+</ResponseField>
+
+<ResponseField name="email" type="string">
+  Student email address.
+</ResponseField>
+
+<ResponseField name="totalFee" type="number" required>
+  The total fee amount due for the student's enrollment.
+</ResponseField>
+
+<ResponseField name="paidAmount" type="number" required>
+  The cumulative amount collected so far. Updated only through the collect-fee endpoint — never via student update.
+</ResponseField>
+
+<ResponseField name="balance" type="number">
+  **Read-only virtual.** Computed as `Math.max(0, totalFee - paidAmount)`. Included in JSON responses when virtuals are enabled.
+</ResponseField>
+
+<ResponseField name="feeStatus" type="string" required>
+  **Read-only, auto-calculated.** One of `"paid"`, `"partial"`, or `"pending"`. Determined by the pre-save hook on every document save.
+</ResponseField>
+
+<ResponseField name="studentStatus" type="string">
+  Lifecycle status. One of `"Active"`, `"Withdrawn"`, `"Expelled"`, or `"Suspended"`. Defaults to `"Active"`.
+</ResponseField>
+
+<ResponseField name="imageUrl" type="string">
+  Relative path to the uploaded student photo (e.g., `"/uploads/students/photo.jpg"`).
+</ResponseField>
+
+<ResponseField name="photo" type="string">
+  External photo URL, used as fallback when `imageUrl` is not set.
+</ResponseField>
+
+<ResponseField name="createdAt" type="string">
+  ISO 8601 timestamp of when the record was created.
+</ResponseField>
+
+<ResponseField name="updatedAt" type="string">
+  ISO 8601 timestamp of the most recent update.
+</ResponseField>
+
+---
+
+## GET /api/students
+
+Returns all student records, with optional filtering.
+
+### Query parameters
+
+<ParamField query="class" type="string">
+  Filter by class name. Supports partial, case-insensitive matching (e.g., `"9th"` matches `"9th Grade - Medical"`).
+</ParamField>
+
+<ParamField query="group" type="string">
+  Filter by group (e.g., `"Pre-Medical"`).
+</ParamField>
+
+<ParamField query="status" type="string">
+  Filter by enrollment status (`"active"`, `"inactive"`, `"graduated"`).
+</ParamField>
+
+<ParamField query="search" type="string">
+  Free-text search across `studentName`, `fatherName`, and `studentId` fields.
+</ParamField>
+
+<ParamField query="feeStatus" type="string">
+  Filter by computed fee status: `"paid"`, `"partial"`, or `"pending"`.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean" required>
+  `true` on success.
+</ResponseField>
+
+<ResponseField name="count" type="number" required>
+  Number of records returned.
+</ResponseField>
+
+<ResponseField name="data" type="object[]" required>
+  Array of student objects. See the [Student object](#student-object) reference above for field details.
+</ResponseField>
+
+---
+
+## GET /api/students/:id
+
+Returns a single student record by its MongoDB `_id`.
+
+### Path parameters
+
+<ParamField path="id" type="string" required>
+  The MongoDB `_id` of the student.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean" required>
+  `true` when the student is found.
+</ResponseField>
+
+<ResponseField name="data" type="object" required>
+  The student object.
+</ResponseField>
+
+---
+
+## POST /api/students
+
+Creates a new student record. The `studentId` is auto-generated and must not be included in the request body.
+
+<Warning>
+  Do not include `feeStatus` in the request body. It is computed automatically by the pre-save hook based on `totalFee` and `paidAmount`. Any `feeStatus` value you send will be ignored.
+</Warning>
+
+### Request body
+
+<ParamField body="studentName" type="string" required>
+  The student's full name.
+</ParamField>
+
+<ParamField body="fatherName" type="string" required>
+  The student's father's full name.
+</ParamField>
+
+<ParamField body="class" type="string" required>
+  The class name string.
+</ParamField>
+
+<ParamField body="group" type="string" required>
+  Academic group (e.g., `"Pre-Medical"`).
+</ParamField>
+
+<ParamField body="totalFee" type="number" required>
+  Total fee amount due.
+</ParamField>
+
+<ParamField body="parentCell" type="string" required>
+  Parent or guardian phone number. Also used to auto-generate a default login password if no password is provided.
+</ParamField>
+
+<ParamField body="subjects" type="string[] | object[]">
+  Subjects to enroll the student in. Can be provided as a comma-separated string or an array. If omitted and `classRef` is set, subjects are copied from the class at admission time with prices locked.
+</ParamField>
+
+<ParamField body="classRef" type="string">
+  MongoDB `_id` of the linked Class document. When provided, the assigned teacher and subjects are auto-populated from the class.
+</ParamField>
+
+<ParamField body="paidAmount" type="number">
+  Initial payment collected at admission. Defaults to `0`. If greater than zero, an admission fee record and INCOME transaction are created automatically.
+</ParamField>
+
+<ParamField body="phone" type="string">
+  Student's own phone number.
+</ParamField>
+
+<ParamField body="email" type="string">
+  Student's email address.
+</ParamField>
+
+<ParamField body="barcodeId" type="string">
+  Physical barcode ID for the student's ID card. Must be unique. If omitted, can be generated later via the `generateBarcodeId` method.
+</ParamField>
+
+<ParamField body="studentStatus" type="string" default="Active">
+  Initial lifecycle status. Defaults to `"Active"`.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean" required>
+  `true` when the student is created.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Confirmation message.
+</ResponseField>
+
+<ResponseField name="data" type="object" required>
+  The newly created student object, including the auto-generated `studentId` and computed `feeStatus`.
+</ResponseField>
+
+### Example
+
+```bash
+curl --request POST \
+  --url https://your-api.example.com/api/students \
+  --header 'Content-Type: application/json' \
+  --cookie ./cookies.txt \
+  --data '{
+    "studentName": "Ali Hassan",
+    "fatherName": "Hassan Raza",
+    "class": "11th Grade - Pre-Medical",
+    "group": "Pre-Medical",
+    "parentCell": "03001234567",
+    "totalFee": 25000,
+    "paidAmount": 10000
+  }'
+```
+
+---
+
+## PUT /api/students/:id
+
+Updates an existing student record. The `feeStatus`, `paidAmount`, `studentId`, and `_id` fields are stripped from the request body before the update is applied — they are managed internally.
+
+<Warning>
+  `feeStatus` cannot be set manually through this endpoint. It is recalculated automatically whenever the document is saved. To update `paidAmount`, use the [collect-fee](/api/fee-records#post-apistudentsidcollect-fee) endpoint instead.
+</Warning>
+
+### Path parameters
+
+<ParamField path="id" type="string" required>
+  The MongoDB `_id` of the student to update.
+</ParamField>
+
+### Request body
+
+Send any subset of the student fields you want to update. The same field list as [POST /api/students](#post-apistudents) applies, with the exception that `feeStatus`, `paidAmount`, `studentId`, and `_id` are ignored.
+
+### Response
+
+<ResponseField name="success" type="boolean" required>
+  `true` when the update is applied.
+</ResponseField>
+
+<ResponseField name="data" type="object" required>
+  The updated student object with recalculated `feeStatus`.
+</ResponseField>
+
+---
+
+## DELETE /api/students/:id
+
+Withdraws a student by setting their `studentStatus` to `"Withdrawn"`. This is a soft delete — the record is retained in the database. An optional refund can be processed at withdrawal time.
+
+### Path parameters
+
+<ParamField path="id" type="string" required>
+  The MongoDB `_id` of the student to withdraw.
+</ParamField>
+
+### Request body
+
+<ParamField body="refundAmount" type="number">
+  Amount to refund to the student. Must not exceed the student's `paidAmount`. If greater than zero, a `REFUND` transaction is created and the student's `paidAmount` is decremented accordingly.
+</ParamField>
+
+<ParamField body="refundReason" type="string">
+  Reason for the refund, stored on the transaction and fee records.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean" required>
+  `true` when the withdrawal is processed.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Summary of the withdrawal and any refund processed.
+</ResponseField>
+
+<ResponseField name="data" type="object" required>
+  <Expandable title="properties">
+    <ResponseField name="student" type="object">
+      The updated student record with `studentStatus: "Withdrawn"`.
+    </ResponseField>
+    <ResponseField name="refundTransaction" type="object">
+      The refund transaction object, or `null` if no refund was requested.
+    </ResponseField>
+    <ResponseField name="refundAmount" type="number">
+      The refund amount processed.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## GET /api/students/stats/overview
+
+Returns aggregate student statistics across the entire database.
+
+### Response
+
+<ResponseField name="success" type="boolean" required>
+  `true` on success.
+</ResponseField>
+
+<ResponseField name="data" type="object" required>
+  <Expandable title="properties">
+    <ResponseField name="total" type="number">
+      Total number of student records.
+    </ResponseField>
+    <ResponseField name="active" type="number">
+      Number of students with `status: "active"`.
+    </ResponseField>
+    <ResponseField name="preMedical" type="number">
+      Number of students in the `"Pre-Medical"` group.
+    </ResponseField>
+    <ResponseField name="preEngineering" type="number">
+      Number of students in the `"Pre-Engineering"` group.
+    </ResponseField>
+  </Expandable>
+</ResponseField>

@@ -1,81 +1,169 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
-icon: 'rocket'
+title: Quickstart — Run SCA Academia from Scratch
+description: Step-by-step guide to clone the repo, configure environment variables, seed the database, and launch both the backend and frontend servers.
 ---
 
-## Get started in three steps
+This guide takes you from an empty machine to a fully running SCA Academia instance. You will set up the Node.js/Express backend connected to MongoDB, seed the initial owner and partner accounts, then start the React/Vite frontend. The whole process takes under ten minutes with Node.js and MongoDB already installed.
 
-Get your documentation site running locally and make your first customization.
+<Warning>
+  The seed script creates three accounts with the default password `admin123`. **Change all passwords before exposing the system to a network or going to production.** See the production checklist in the [architecture guide](/architecture) for the full hardening steps.
+</Warning>
 
-### Step 1: Set up your local environment
+<Steps>
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+  <Step title="Clone the repository">
+    Clone the SCA Academia monorepo to your local machine.
 
-### Step 2: Deploy your changes
+    ```bash
+    git clone https://github.com/muz4miL/sca-academia.git
+    cd sca-academia
+    ```
+  </Step>
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+  <Step title="Install backend dependencies">
+    The backend lives in the `backend/` directory and uses Express, Mongoose, and several security packages.
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    ```bash
+    cd backend
+    npm install
+    ```
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+    Key packages installed: `express`, `mongoose`, `jsonwebtoken`, `bcryptjs`, `cookie-parser`, `cors`, `dotenv`, `multer`, `nodemon`.
+  </Step>
 
-### Step 3: Go live
+  <Step title="Configure backend environment variables">
+    Create a `.env` file inside `backend/` using the template below. All three variables are required for the server to start.
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    ```env backend/.env
+    # MongoDB connection string — local or Atlas
+    MONGODB_URI=mongodb://localhost:27017/academyDB
 
-## Next steps
+    # Port the Express server listens on
+    PORT=5000
 
-Now that you have your docs running, explore these key features:
+    # JWT signing secret — use a random string of at least 32 characters
+    JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
 
-<CardGroup cols={2}>
+    # Optional: control token lifespan (default 7 days)
+    JWT_EXPIRES_IN=7d
+    ```
 
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
+    For **MongoDB Atlas** replace `MONGODB_URI` with your cluster connection string:
 
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
+    ```env
+    MONGODB_URI=mongodb+srv://<user>:<password>@cluster.mongodb.net/academyDB
+    ```
+  </Step>
 
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
+  <Step title="Seed the database">
+    The seed script creates the three protected core accounts and any required configuration documents.
 
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
+    ```bash
+    npm run seed
+    ```
 
-</CardGroup>
+    A successful run prints:
 
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+    ```
+    ✅ MongoDB Connected Successfully!
+    👥 Creating Core Partner Accounts...
+    ✅ 3 core users created!
+       - Sir Waqar Baig (OWNER)
+       - Dr. Zahid (PARTNER)
+       - Sir Shah Saud (PARTNER)
+    ```
+
+    Default credentials created by the seed:
+
+    | Full Name | Username | Password | Role |
+    |---|---|---|---|
+    | Sir Waqar Baig | `waqar` | `admin123` | OWNER |
+    | Dr. Zahid | `zahid` | `admin123` | PARTNER |
+    | Sir Shah Saud | `saud` | `admin123` | PARTNER |
+  </Step>
+
+  <Step title="Start the backend server">
+    Run the development server with auto-reload via nodemon.
+
+    <CodeGroup>
+      ```bash Development (nodemon)
+      npm run dev
+      ```
+
+      ```bash Production (node)
+      npm start
+      ```
+    </CodeGroup>
+
+    You should see:
+
+    ```
+    🚀 Server is running on port 5000
+    📡 API available at http://localhost:5000
+    ✅ MongoDB Connected Successfully!
+    ```
+
+    Verify by visiting `http://localhost:5000` — it returns a JSON manifest of all registered route prefixes.
+  </Step>
+
+  <Step title="Install frontend dependencies">
+    Open a second terminal window, navigate to `frontend/`, and install the React/Vite application dependencies.
+
+    ```bash
+    cd frontend
+    npm install
+    ```
+  </Step>
+
+  <Step title="Configure frontend environment variables">
+    Create a `.env` file inside `frontend/` pointing at the running backend.
+
+    ```env frontend/.env
+    # Full URL to the backend API — no trailing slash
+    VITE_API_URL=http://localhost:5000
+    ```
+
+    If you changed `PORT` in the backend `.env`, update this value to match.
+  </Step>
+
+  <Step title="Start the frontend dev server">
+    ```bash
+    npm run dev
+    ```
+
+    Vite starts on port **5173** by default:
+
+    ```
+    VITE v5.x.x  ready in ~300ms
+
+    ➜  Local:   http://localhost:5173/
+    ➜  Network: use --host to expose
+    ```
+
+    Open `http://localhost:5173` in your browser.
+  </Step>
+
+  <Step title="Log in with the OWNER account">
+    On the login page enter the seeded OWNER credentials:
+
+    - **Username:** `waqar`
+    - **Password:** `admin123`
+
+    After a successful login you land on the **Dashboard**, which shows live stats: total active students, today's fee collections, pending balances, teacher count, and a recent transaction feed. The sidebar exposes all modules available to the OWNER role — Students, Finance, Teachers, Payroll, Expenses, Timetable, Attendance, Gatekeeper, Inventory, Leads, and more.
+
+    <Tip>
+      Navigate to **Users** in the sidebar to change the default passwords for all three seeded accounts before sharing access with partners or staff.
+    </Tip>
+  </Step>
+
+</Steps>
+
+<Tip>
+  To run both servers simultaneously without managing two terminals, use the included PM2 production script from the repo root:
+
+  ```bash
+  bash run-server-production.sh
+  ```
+
+  This installs PM2 globally if needed, starts `sca-backend` and `sca-frontend` as named PM2 processes, and persists them across reboots. Use `pm2 logs` to tail output and `pm2 stop sca-backend sca-frontend` to shut both down.
+</Tip>

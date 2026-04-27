@@ -1,0 +1,116 @@
+---
+title: 'Student Portal: Self-Service Access for Students'
+description: 'Separate login flow for students to view their profile, fee summary, attendance history, and upload a profile picture with a configurable change limit.'
+---
+
+The Student Portal provides students with a dedicated self-service interface at `/student-portal`. It operates entirely outside the staff authentication system — students authenticate with their own credentials and receive a separate `studentToken` cookie. From the portal, a student can view their profile, check fee and attendance history, and manage their profile picture.
+
+## Authentication
+
+The portal uses a separate JWT stored in an HTTP-only cookie named `studentToken`. This is distinct from the `token` cookie used by staff. A student's session does not grant any access to staff routes, and vice versa.
+
+Students can log in using their **student ID**, **barcode ID**, or **email address** as the username, together with their password. Only students with an `Active` status can log in — accounts pending approval are rejected with a message directing the student to the administration office.
+
+<Steps>
+  <Step title="Submit credentials">
+    The student sends a `POST` request to `/api/student-portal/login` with a `username` (studentId, barcodeId, or email) and `password` in the request body.
+  </Step>
+  <Step title="Status check">
+    The server verifies that `studentStatus` is `"Active"`. Inactive or pending accounts receive a `403` response.
+  </Step>
+  <Step title="Password verification">
+    The submitted password is compared against the stored bcrypt hash using `comparePassword()`.
+  </Step>
+  <Step title="Token issued">
+    On success, the server signs a JWT containing `id`, `role: "student"`, `studentId`, and `barcodeId`, then sets it as an HTTP-only `studentToken` cookie valid for 7 days.
+  </Step>
+  <Step title="Portal access granted">
+    The response includes the student's profile via `getStudentProfile()` and the raw token (for clients that use the `Authorization` header as a fallback).
+  </Step>
+</Steps>
+
+To log out, the client calls `POST /api/student-portal/logout`. The server overwrites the `studentToken` cookie with an expired value, clearing the session.
+
+## Portal endpoints
+
+All routes below (except `/login`) require the `protectStudent` middleware, which validates the `studentToken` cookie and attaches the student document to `req.student`.
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| `POST` | `/api/student-portal/login` | Authenticate and receive `studentToken` |
+| `GET` | `/api/student-portal/me` | Fetch full profile with fee summary and picture settings |
+| `GET` | `/api/student-portal/schedule` | Retrieve the student's class timetable |
+| `GET` | `/api/student-portal/videos` | List published videos and lectures for the student's class |
+| `POST` | `/api/student-portal/videos/:id/view` | Increment view count on a video or lecture |
+| `GET` | `/api/student-portal/profile-picture/status` | Get current photo URL and remaining change quota |
+| `POST` | `/api/student-portal/profile-picture` | Upload a new profile picture (multipart/form-data) |
+| `POST` | `/api/student-portal/logout` | Clear the `studentToken` cookie |
+
+## Profile data
+
+The `/api/student-portal/me` endpoint returns a profile object that includes:
+
+- **Identity**: `studentId`, `barcodeId`, `name`, `fatherName`, `gender`, `class`, `group`, `subjects`, `email`
+- **Fee summary**: `totalFee`, `paidAmount`, `balance` (computed as `max(0, totalFee - paidAmount)`), `feeStatus`
+- **Session and class**: populated `sessionRef` and `classRef` documents
+- **Picture settings**: `profilePictureChangeCount`, `maxChangesPerStudent`, `allowStudentPictureChanges`, `changesRemaining`
+
+## Profile picture management
+
+Students can upload or change their profile picture directly from the portal. The uploaded image is stored on the server and syncs automatically across all system views — including Gatekeeper scan results, the Attendance table, and admin student pages — because every endpoint reads from the same `photo` and `imageUrl` fields on the Student document.
+
+<Note>
+  The number of profile picture changes a student can make is configurable in the system's Configuration settings. The default limit is **3 changes per student**. Once the limit is reached, the student must contact administration for further changes. The current count and remaining quota are returned in every `/me` response.
+</Note>
+
+### File requirements
+
+| Property | Requirement |
+|----------|-------------|
+| Accepted formats | JPEG, JPG, PNG only |
+| Maximum file size | 5 MB |
+| Maximum changes | 3 (configurable per system settings) |
+
+### Upload flow
+
+The upload endpoint (`POST /api/student-portal/profile-picture`) expects a `multipart/form-data` body with the file in a field named `photo`. On success, both the `photo` and `imageUrl` fields on the Student document are updated to the new relative path (e.g. `/uploads/students/profile-260001-1723456789.jpg`), and a log entry is appended to `profilePictureChangeLog`.
+
+The camera overlay in the portal UI appears on hover over the profile photo **only when the student has remaining changes**. Once the quota is exhausted, the overlay is hidden.
+
+```typescript
+// Resolve photo URLs in the frontend before rendering.
+// The backend returns relative paths that must be prefixed with API_BASE_URL.
+const resolvePhoto = (photo: string | undefined, studentId: string) => {
+  if (!photo) return "https://api.dicebear.com/7.x/avataaars/svg?seed=" + studentId;
+  if (photo.startsWith("http") || photo.startsWith("data:")) return photo;
+  return `${API_BASE_URL}${photo}`;
+};
+```
+
+<Tip>
+  Students who have never uploaded a photo are shown a DiceBear avatar generated from their `studentId` as the seed (using the `avataaars` style). This ensures every student always has a distinct, identifiable image even before uploading. The same fallback is used in Gatekeeper scan results and the Attendance table.
+</Tip>
+
+### Photo priority chain
+
+The `getStudentProfile()` method on the Student model resolves the display photo using the following priority order:
+
+1. `imageUrl` — the most recently uploaded photo path
+2. `photo` — a legacy or admin-set photo path
+3. DiceBear avatar URL seeded with `studentId`
+
+## Fee summary display
+
+The portal dashboard shows the student's fee status at a glance using a pie chart and summary cards:
+
+- **Total fee**: the full amount owed for the session
+- **Paid amount**: cumulative payments recorded against the student
+- **Remaining balance**: `max(0, totalFee - paidAmount)` — never shown as negative
+
+## Attendance history
+
+Students can view their own attendance records from the portal. The backend populates attendance data from the Attendance collection, which is written automatically when a student scans their barcode at the Gatekeeper.
+
+## Route access
+
+The `/student-portal` frontend route is not protected by the staff authentication guard. Any visitor can reach the login page. The `protectStudent` middleware on backend API routes enforces that only a valid `studentToken` can access student data.

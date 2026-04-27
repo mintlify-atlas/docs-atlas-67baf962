@@ -1,0 +1,79 @@
+---
+title: "Managing Classes: Schedule, Subjects, and Enrollment"
+description: "Create and configure class instances with grade levels, subjects, fee structures, teacher assignments, and timetable schedules for each academic session."
+---
+
+Classes are the organisational backbone of SCA Academia. Each class instance represents a specific teaching group — identified by a unique title such as "10th Medical Batch A" — and carries everything needed to run a session: the grade level, academic stream, schedule, room assignment, assigned teachers, and per-subject fee structure. Students enrol into a class, and the class drives fee calculations, teacher credit, and timetable generation.
+
+## Class fields
+
+| Field | Type | Description |
+|---|---|---|
+| `classId` | String | Auto-generated identifier in `CLS-001` format |
+| `classTitle` | String | Human-readable unique title, e.g. "10th Medical Batch A" (required) |
+| `gradeLevel` | String | Standardised level: 9th Grade, 10th Grade, 11th Grade, 12th Grade, MDCAT Prep, ECAT Prep, or Tuition Classes |
+| `group` | String | Academic stream: Pre-Medical, Pre-Engineering, Computer Science, Arts, or Science |
+| `shift` | String | Optional timing slot: Morning, Evening, Weekend, Batch A, Batch B, or Batch C |
+| `session` | ObjectId | Reference to the active academic `Session` (required) |
+| `days` | Array | Days the class meets, e.g. `["Mon", "Wed", "Fri"]` |
+| `startTime` | String | Start time in 24-hour format, e.g. `"16:00"` (required) |
+| `endTime` | String | End time in 24-hour format, e.g. `"18:00"` (required) |
+| `roomNumber` | String | Room or hall identifier (defaults to "TBD") |
+| `maxCapacity` | Number | Maximum number of students allowed (defaults to 30) |
+| `enrolledCount` | Number | Current enrolled student count |
+| `subjects` | Array | Subject objects `{ name, fee }` — defines per-subject pricing |
+| `baseFee` | Number | Fallback fee applied to any subject without an explicit fee |
+| `assignedTeacher` | ObjectId | Primary teacher reference |
+| `teacherName` | String | Denormalised teacher name for quick display |
+| `subjectTeachers` | Array | Per-subject teacher mappings `{ subject, teacherId, teacherName }` |
+| `revenueMode` | String | `percentage` or `fixed-per-student` — controls how teacher earnings are calculated |
+| `teacherRatePerStudent` | Number | Fixed amount per student per teacher (used when `revenueMode` is `fixed-per-student`) |
+| `status` | String | `active` or `inactive` |
+
+## Creating a class
+
+Open the Classes page (`/classes`) and click **+ New Class**.
+
+<Steps>
+  <Step title="Set the class identity">
+    Enter a unique **Class Title** (e.g. "12th Pre-Engineering Morning"), select the **Grade Level** and **Group**, and optionally choose a **Shift**.
+  </Step>
+  <Step title="Assign an academic session">
+    Select the session this class belongs to. The session links the class to the correct fee pricing configuration.
+  </Step>
+  <Step title="Configure the schedule">
+    Pick the days of the week, set start and end times, and enter the room number. The system checks for scheduling conflicts in the same room before saving — a hard stop is raised if another active class overlaps on the same days and times.
+  </Step>
+  <Step title="Add subjects and fees">
+    Add subjects with individual fee amounts. If a subject has no explicit fee, the `baseFee` is used as a fallback. Duplicate subjects (case-insensitive) are merged automatically, keeping the higher fee.
+  </Step>
+  <Step title="Assign a teacher">
+    Select the primary teacher for the class. For multi-teacher classes, map individual subjects to specific teachers using the subject-teacher mapping panel.
+  </Step>
+  <Step title="Choose the revenue model">
+    Select **Percentage** to split collected fees proportionally according to each teacher's compensation package, or **Fixed per student** to pay a flat rate per enrolled student regardless of the collected fee amount.
+  </Step>
+  <Step title="Save">
+    The system generates a `classId`, saves the class, and makes it available for student enrollment and timetable entry.
+  </Step>
+</Steps>
+
+## Subject fees and price locking
+
+Subject fees defined on a class are the source of truth at the time of enrollment. When a student is admitted into a class, the current subject fees are copied and locked onto the student record. This means subsequent changes to the class's subject fees do not retroactively alter existing students' fee obligations.
+
+## Capacity tracking
+
+Each class has a `maxCapacity`. The `enrolledCount` field and virtual `capacityStatus` indicate whether the class is `AVAILABLE`, `ALMOST_FULL` (5 or fewer seats remaining), or `FULL`. The UI surfaces this information on the class cards so staff can manage intake effectively.
+
+## Timetable and sessions
+
+Timetable entries for a class are managed separately via the Timetable module (`/api/timetable`). Each timetable entry links a subject, a day, a time slot, a teacher, and a room. Deleting a class removes all associated timetable entries automatically.
+
+Classes are scoped to an academic session. The Classes page supports filtering by session so staff can view classes for the current or any past session. Revenue and student counts shown on each class card reflect active students only — those with `studentStatus` not in Withdrawn, Expelled, or Suspended.
+
+## Student enrollment in classes
+
+Students are enrolled into a class during the admission process. See [Admissions](/modules/admissions) for the enrollment flow. Once enrolled, a student's `classRef` links them to the class for all revenue calculations, teacher credit, and timetable lookups.
+
+For a full view of how classes connect to the broader data model, see [Architecture](/architecture).

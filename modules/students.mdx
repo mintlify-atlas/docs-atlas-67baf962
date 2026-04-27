@@ -1,0 +1,109 @@
+---
+title: "Managing Students: Enrollment, Fees, and Profiles"
+description: "Enroll students, track fee status with automatic calculation, filter the roster by class or group, and manage the full student lifecycle from Active to Withdrawn."
+---
+
+The Students module is the central record of every person attending the academy. Each student belongs to a class and group, carries a set of enrolled subjects with locked-in fee amounts, and has a running fee balance that the system maintains automatically. Staff use this module to enroll new students, collect fees, update personal details, and manage status changes throughout a student's time at the academy.
+
+## Student fields
+
+| Field | Type | Description |
+|---|---|---|
+| `studentId` | String | Auto-generated numeric ID (1, 2, 3, …) assigned on save |
+| `studentName` | String | Full name of the student (required) |
+| `fatherName` | String | Father's full name (required) |
+| `class` | String | Class name string, e.g. "10th Grade - Medical" |
+| `group` | String | Academic stream: Pre-Medical, Pre-Engineering, Computer Science, Arts, or Science |
+| `subjects` | Array | Subject objects `{ name, fee }` — prices locked at admission time |
+| `parentCell` | String | Primary contact phone number (required) |
+| `studentCell` | String | Student's own phone number (optional) |
+| `email` | String | Email address (optional, stored lowercase) |
+| `feeStatus` | String | Auto-calculated: `paid`, `partial`, or `pending` |
+| `totalFee` | Number | Total fee amount agreed at admission |
+| `paidAmount` | Number | Cumulative amount paid to date |
+| `balance` | Number (virtual) | `Math.max(0, totalFee - paidAmount)` — never goes negative |
+| `studentStatus` | String | Lifecycle status: `Active`, `Pending`, `Alumni`, `Expelled`, `Suspended`, or `Withdrawn` |
+| `barcodeId` | String | Physical ID card barcode in `SCA-YEAR-XXX` format |
+| `imageUrl` | String | Relative path to the uploaded student photo |
+| `admissionDate` | Date | Date of admission (defaults to the current date) |
+| `discountAmount` | Number | Scholarship or discount applied at admission |
+| `sessionRate` | Number | Official session rate at the time of admission |
+| `assignedTeacher` | ObjectId | Reference to the teacher linked from the student's class |
+| `gender` | String | `Male` or `Female` (defaults to Male) |
+| `cnic` | String | National identity number for verification |
+
+<Tip>
+  `feeStatus` is never set manually. A pre-save hook on the Student model calculates it automatically every time the record is saved: if `paidAmount >= totalFee` the status becomes `paid`; if `paidAmount > 0` but less than `totalFee` it becomes `partial`; otherwise it stays `pending`. Sending `feeStatus` in an API request has no effect — the server removes it before saving.
+</Tip>
+
+## Enrolling a new student
+
+Use the **Add Student** dialog, opened by clicking the **+ Add Student** button on the Students page (`/students`).
+
+<Steps>
+  <Step title="Open the Add Student dialog">
+    Click the **+ Add Student** button in the top-right of the Students page. A modal form appears.
+  </Step>
+  <Step title="Select class and session">
+    Choose the class from the dropdown. The system auto-fills the academic session and assigns the class teacher. Subjects and their locked fees are pulled from the class record.
+  </Step>
+  <Step title="Enter personal details">
+    Fill in student name, father's name, gender, parent phone number, and optional fields such as student phone, email, address, and referral source.
+  </Step>
+  <Step title="Set fee details">
+    Enter the total fee. If a session rate is configured, a discount amount is calculated automatically. Enter the amount paid at admission in the **Paid Amount** field.
+  </Step>
+  <Step title="Save the record">
+    Click **Save**. The system auto-generates a `studentId`, sets `feeStatus` based on the amounts entered, creates an admission fee record in the finance ledger, and credits the assigned teacher's wallet if a fee split applies.
+  </Step>
+  <Step title="Receive credentials">
+    The response includes a login username (the `studentId`) and a temporary password derived from the student's name and phone number. Share these with the student for portal access.
+  </Step>
+</Steps>
+
+## Fee status badges
+
+Each row in the student table shows a coloured badge reflecting the current `feeStatus`:
+
+| Status | Colour | Meaning |
+|---|---|---|
+| `paid` | Green | `paidAmount` equals or exceeds `totalFee` |
+| `partial` | Amber | Some payment received but balance remains |
+| `pending` | Red (with glow) | No payment recorded yet |
+
+## Searching and filtering
+
+The student list supports several simultaneous filters:
+
+- **Search** — matches against `studentName`, `fatherName`, and `studentId` using a case-insensitive partial search.
+- **Class** — filters by class name (partial match, e.g. "9th" matches "9th Grade - Medical").
+- **Group** — exact match on academic stream (Pre-Medical, Pre-Engineering, etc.).
+- **Session** — restricts results to students linked to a specific academic session.
+- **Teacher** — shows only students whose class is assigned to the selected teacher.
+
+## Viewing a student profile
+
+Clicking the eye icon on any student row navigates to `/students/:id`, the full student profile page. The profile shows personal details, enrolled subjects, fee history, barcode ID, and a photo (or an auto-generated initials avatar if no photo has been uploaded).
+
+## Collecting a fee
+
+Each row has a **$** (dollar sign) icon button that opens the fee collection modal for that student. Enter the amount and the billing month, then confirm. The system:
+
+1. Adds the amount to `paidAmount` and recalculates `feeStatus`.
+2. Creates a `FeeRecord` entry for the payment.
+3. Records an `INCOME` transaction in the finance ledger.
+4. Calculates and applies the teacher revenue split automatically.
+5. Sends a notification to the academy owner.
+
+For full details on fee collection and splits, see [Fee Collection](/modules/fee-collection).
+
+## Student status lifecycle
+
+Students start as `Active` when enrolled directly through the Admissions form, or as `Pending` when arriving through the self-registration pipeline. From `Active`, a student can move to:
+
+- **Withdrawn** — soft-deleted via the Withdraw action; an optional refund amount can be entered. Teacher shares are reversed proportionally.
+- **Expelled** — set by an administrator via a status update.
+- **Suspended** — temporary suspension; student remains in the system.
+- **Alumni** — marks a student who has completed the programme.
+
+Withdrawn, Expelled, and Suspended students are excluded from the active student count and revenue calculations on the Classes dashboard.

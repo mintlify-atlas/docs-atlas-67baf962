@@ -1,0 +1,237 @@
+---
+title: "Teachers API — Manage Instructor Profiles and Compensation"
+description: "Create, retrieve, update, and delete teacher records. Each teacher carries a compensation package (percentage, fixed, or hybrid) and a wallet balance that accrues from student fee splits."
+---
+
+The Teachers API manages instructor records for the academy. When a teacher is created, the system automatically generates a linked user account with login credentials. Compensation is configured per teacher and drives the automatic revenue-split logic when student fees are recorded.
+
+## Endpoints
+
+### List all teachers
+
+```
+GET /api/teachers
+```
+
+Returns all teacher records sorted by creation date (newest first).
+
+**Response**
+
+<ResponseField name="success" type="boolean">Whether the request succeeded.</ResponseField>
+<ResponseField name="count" type="number">Total number of teachers returned.</ResponseField>
+<ResponseField name="data" type="Teacher[]">Array of teacher objects.</ResponseField>
+
+---
+
+### Get a single teacher
+
+```
+GET /api/teachers/:id
+```
+
+Returns one teacher by their MongoDB `_id`. If the teacher is linked to a user account, the response also includes `debtToOwner` and `walletBalance` fields pulled from that account.
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>
+  MongoDB ObjectId of the teacher.
+</ParamField>
+
+**Response**
+
+<ResponseField name="success" type="boolean">Whether the request succeeded.</ResponseField>
+<ResponseField name="data" type="object">
+  Teacher object. See [Teacher fields](#teacher-fields) below.
+</ResponseField>
+
+---
+
+### Get teacher revenue data
+
+```
+GET /api/teachers/:id/revenue
+```
+
+Returns revenue figures for the currently active academic session. For percentage-based teachers this reflects actual income transactions; for fixed-salary teachers it reflects the pending balance on the teacher's wallet.
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>
+  MongoDB ObjectId of the teacher.
+</ParamField>
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="data" type="object">
+  <Expandable title="fields">
+    <ResponseField name="totalRevenue" type="number">Total fee income attributed to this teacher's classes in the active session (PKR).</ResponseField>
+    <ResponseField name="teacherShare" type="number">Amount owed or earned by the teacher (PKR).</ResponseField>
+    <ResponseField name="compensationType" type="string">The active compensation mode: `percentage`, `fixed`, or `hybrid`.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+### Create a teacher
+
+```
+POST /api/teachers
+```
+
+Creates a new teacher and automatically provisions a `TEACHER`-role user account with generated credentials. The plain-text password is returned **once** in the response and is not retrievable afterwards.
+
+**Request body**
+
+<ParamField body="name" type="string" required>
+  Full name of the teacher (e.g. `"Ahmed Khan"`). Used to derive the login username.
+</ParamField>
+
+<ParamField body="phone" type="string" required>
+  Contact phone number.
+</ParamField>
+
+<ParamField body="subject" type="string" required>
+  Subject specialisation (stored lowercase, e.g. `"chemistry"`).
+</ParamField>
+
+<ParamField body="joiningDate" type="string">
+  ISO 8601 date string. Defaults to the current date if omitted.
+</ParamField>
+
+<ParamField body="compensation" type="object">
+  Compensation package. The shape depends on `compensation.type`.
+
+  <Expandable title="Percentage mode fields">
+    <ParamField body="compensation.type" type="string">Set to `"percentage"`.</ParamField>
+    <ParamField body="compensation.teacherShare" type="number">Teacher's percentage (0–100). Must sum to 100 with `academyShare`.</ParamField>
+    <ParamField body="compensation.academyShare" type="number">Academy's percentage (0–100).</ParamField>
+  </Expandable>
+
+  <Expandable title="Fixed salary mode fields">
+    <ParamField body="compensation.type" type="string">Set to `"fixed"`.</ParamField>
+    <ParamField body="compensation.fixedSalary" type="number">Monthly fixed salary in PKR.</ParamField>
+  </Expandable>
+
+  <Expandable title="Hybrid mode fields">
+    <ParamField body="compensation.type" type="string">Set to `"hybrid"`.</ParamField>
+    <ParamField body="compensation.baseSalary" type="number">Base monthly salary in PKR.</ParamField>
+    <ParamField body="compensation.profitShare" type="number">Profit-share percentage (0–100).</ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="profileImage" type="string">
+  Base64-encoded profile image string.
+</ParamField>
+
+<Warning>
+  If `compensation` is omitted, the system falls back to the defaults stored in the global **Settings** document (typically `percentage` mode with a 70/30 split).
+</Warning>
+
+**Response** — `201 Created`
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="data" type="object">Full teacher document as saved to the database.</ResponseField>
+<ResponseField name="credentials" type="object">
+  Auto-generated login credentials. **Save these — the password cannot be retrieved later.**
+  <Expandable title="fields">
+    <ResponseField name="username" type="string">Auto-generated username derived from the teacher's name plus a 4-digit random suffix.</ResponseField>
+    <ResponseField name="password" type="string">Plain-text password (8 random characters). Hashed before storage.</ResponseField>
+    <ResponseField name="note" type="string">Reminder to save the credentials.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+**Example**
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.example.com/api/teachers \
+  -H "Content-Type: application/json" \
+  --cookie ./cookies.txt \
+  -d '{
+    "name": "Ahmed Khan",
+    "phone": "03001234567",
+    "subject": "chemistry",
+    "compensation": {
+      "type": "percentage",
+      "teacherShare": 70,
+      "academyShare": 30
+    }
+  }'
+```
+</CodeGroup>
+
+---
+
+### Update a teacher
+
+```
+PUT /api/teachers/:id
+```
+
+Partially or fully updates a teacher record. All fields in the request body are applied with schema validators enforced. You may update compensation fields, but the pre-save hook will validate that the chosen mode's required fields are present and that percentage shares still sum to 100.
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>MongoDB ObjectId of the teacher.</ParamField>
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="message" type="string">`"Teacher updated successfully"`</ResponseField>
+<ResponseField name="data" type="object">Updated teacher document.</ResponseField>
+
+---
+
+### Delete a teacher
+
+```
+DELETE /api/teachers/:id
+```
+
+Permanently removes the teacher document. The linked user account is **not** automatically removed.
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>MongoDB ObjectId of the teacher.</ParamField>
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="message" type="string">`"Teacher deleted successfully"`</ResponseField>
+<ResponseField name="data" type="object">Empty object `{}`.</ResponseField>
+
+---
+
+## Teacher fields
+
+The following fields are present on every teacher object returned by the API.
+
+<ResponseField name="_id" type="string">MongoDB ObjectId.</ResponseField>
+<ResponseField name="name" type="string">Full name.</ResponseField>
+<ResponseField name="phone" type="string">Contact phone number.</ResponseField>
+<ResponseField name="subject" type="string">Subject specialisation (lowercase).</ResponseField>
+<ResponseField name="joiningDate" type="string">ISO 8601 date the teacher joined.</ResponseField>
+<ResponseField name="status" type="string">One of `active`, `inactive`, `suspended`.</ResponseField>
+<ResponseField name="username" type="string">Auto-generated login username.</ResponseField>
+<ResponseField name="profileImage" type="string">Base64 image string or `null`.</ResponseField>
+<ResponseField name="compensation" type="object">
+  <Expandable title="fields">
+    <ResponseField name="type" type="string">`percentage`, `fixed`, or `hybrid`.</ResponseField>
+    <ResponseField name="teacherShare" type="number">Percentage share (percentage mode only).</ResponseField>
+    <ResponseField name="academyShare" type="number">Academy share (percentage mode only).</ResponseField>
+    <ResponseField name="fixedSalary" type="number">Monthly salary in PKR (fixed mode only).</ResponseField>
+    <ResponseField name="baseSalary" type="number">Base salary in PKR (hybrid mode only).</ResponseField>
+    <ResponseField name="profitShare" type="number">Profit-share percentage (hybrid mode only).</ResponseField>
+  </Expandable>
+</ResponseField>
+<ResponseField name="balance" type="object">
+  <Expandable title="fields">
+    <ResponseField name="floating" type="number">Unverified earnings pending a day-close (PKR).</ResponseField>
+    <ResponseField name="verified" type="number">Verified earnings available for payout (PKR).</ResponseField>
+    <ResponseField name="pending" type="number">Commission owed but not yet paid out (PKR).</ResponseField>
+  </Expandable>
+</ResponseField>
+<ResponseField name="totalPaid" type="number">Lifetime total paid out to this teacher (PKR).</ResponseField>
+<ResponseField name="createdAt" type="string">ISO 8601 creation timestamp.</ResponseField>
+<ResponseField name="updatedAt" type="string">ISO 8601 last-updated timestamp.</ResponseField>

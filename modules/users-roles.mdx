@@ -1,0 +1,96 @@
+---
+title: 'User Management and Role-Based Access Control'
+description: 'Overview of staff roles (OWNER, PARTNER, STAFF, OPERATOR), financial fields, protected accounts, and how the OWNER creates and manages user accounts.'
+---
+
+SCA Academia uses a role-based access control system where every staff account belongs to one of four roles. Roles determine which modules a user can access, what financial data they can see, and which administrative actions they can perform. Authentication is handled via HTTP-only cookies — tokens are never stored in `localStorage` or returned in response bodies for re-use outside the cookie.
+
+<Note>
+  All staff authentication flows through `/api/auth`. Tokens are stored exclusively in HTTP-only cookies and are never exposed to client-side JavaScript. Sending a token in the request body will result in a `403 Forbidden` response from the auth middleware.
+</Note>
+
+## Roles
+
+| Role | Who it represents | Access level |
+|------|------------------|-------------|
+| `OWNER` | Primary administrator (e.g. the institution head) | Full access to all modules; all permissions granted automatically, regardless of the `permissions` array |
+| `PARTNER` | Co-owners or senior partners | Broad access, similar to OWNER in most views; cannot perform certain OWNER-only actions such as creating staff accounts |
+| `STAFF` | Day-to-day operational staff | Access limited to assigned permissions — typically fee collection, attendance marking, and student views |
+| `OPERATOR` | Limited operational role | Narrower permissions for front-desk or specific operational tasks |
+
+The `OWNER` role bypasses the `permissions` array entirely — the `getPublicProfile()` method automatically returns all permission values for an OWNER regardless of what is stored in the database.
+
+## Permissions system
+
+Staff accounts carry a `permissions` array that controls which sidebar modules are visible. The OWNER assigns permissions when creating or editing a staff account. Available permission keys include:
+
+`dashboard`, `admissions`, `registrations`, `students`, `attendance`, `teachers`, `finance`, `classes`, `timetable`, `sessions`, `configuration`, `users`, `website`, `payroll`, `inventory`, `settlement`, `gatekeeper`, `frontdesk`, `inquiries`, `reports`, `lectures`
+
+All accounts receive `dashboard` by default. The OWNER can grant or revoke any combination of the above permissions for STAFF and OPERATOR accounts.
+
+## Financial fields
+
+User documents carry several financial tracking fields used by the fee collection and daily closing workflows:
+
+| Field | Description |
+|-------|-------------|
+| `walletBalance.floating` | Cash currently held by the staff member — collected but not yet verified or banked |
+| `walletBalance.verified` | Cash that has been confirmed and closed for the day |
+| `totalCash` | Cumulative cash collected; grows as fees are recorded and is used during daily closing verification |
+| `pendingDebt` | Deprecated — kept for backward compatibility; use `walletBalance` fields for current logic |
+| `expenseDebt` | Amount owed to the OWNER for the user's share of expenses paid out-of-pocket by the OWNER |
+| `debtToOwner` | Tracks partner share owed back to the OWNER when the OWNER covers shared expenses |
+
+The `floatingCash` property in API responses is an alias for `walletBalance.floating`, preserved for older frontend code.
+
+## Protected accounts
+
+Core partner accounts (the founding OWNER and PARTNER accounts) are seeded with `canBeDeleted: false`. The API refuses to delete any user with this flag set.
+
+<Warning>
+  Do not attempt to delete accounts where `canBeDeleted` is `false`. These are core partner accounts that underpin financial and ownership records. Deletion requests for such accounts will return a `403` error. If you need to disable one temporarily, toggle its `isActive` status instead.
+</Warning>
+
+## Creating staff accounts
+
+Only the `OWNER` role can create new staff accounts. The creation endpoint is part of the auth module:
+
+```http
+POST /api/auth/create-staff
+```
+
+The request must include `fullName`, `username`, `password` (minimum 8 characters), and `role`. Optionally supply a `permissions` array to grant module access. The server rejects duplicate usernames.
+
+The `/api/users` route (backed by `userController.js`) provides an alternative user creation and management path also restricted to OWNER:
+
+```http
+GET    /api/users            # List all users (OWNER only)
+POST   /api/users            # Create a new user (OWNER only)
+PUT    /api/users/:id        # Update user details or permissions (OWNER only)
+DELETE /api/users/:id        # Delete a user (OWNER only, canBeDeleted must be true)
+PATCH  /api/users/:id/toggle-status   # Activate or deactivate a user
+GET    /api/users/permissions         # Return the full list of available permission keys
+```
+
+## Managing users
+
+The Users page (`/users`) in the dashboard is visible only to the OWNER. It lists all staff accounts with their role, active status, and assigned permissions. From this page the OWNER can:
+
+- **Create** a new staff account with a chosen role and permission set
+- **Edit** an existing account to change its permissions or details
+- **Toggle status** to activate or deactivate a staff member without deleting them
+- **Delete** an account, subject to the `canBeDeleted` flag
+
+Deactivated accounts (`isActive: false`) cannot log in. The toggle endpoint (`PATCH /api/users/:id/toggle-status`) flips the `isActive` field and returns the updated user document.
+
+## Seeded accounts
+
+The default database seed creates three core accounts:
+
+| Name | Username | Role |
+|------|----------|------|
+| Sir Waqar Baig | `waqar` | `OWNER` |
+| Dr. Zahid | `zahid` | `PARTNER` |
+| Sir Shah Saud | `saud` | `PARTNER` |
+
+All three have `canBeDeleted: false`. Change these passwords before deploying to production.

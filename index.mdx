@@ -1,133 +1,65 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
-icon: 'star'
+title: "SCA Academia: Academy ERP for Coaching Institutes"
+description: "SCA Academia is a full-stack ERP system for coaching academies. Manage students, fees, attendance, payroll, and more from a single platform."
 ---
 
-## Setting up
+SCA Academia is a complete ERP platform built for coaching academies. It brings together student enrollment, fee collection with automatic 70/30 revenue splitting, barcode-based gatekeeper entry, teacher payroll, and a self-service student portal — all in one cohesive system.
 
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Introduction" icon="book-open" href="/introduction">
+    Learn what SCA Academia does and how its modules fit together.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Quick start" icon="rocket" href="/quickstart">
+    Set up the backend and frontend and log in for the first time.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Architecture" icon="diagram-project" href="/architecture">
+    Understand the MERN stack structure, roles, and data flow.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="API Reference" icon="code" href="/api/auth">
+    Explore every REST endpoint with request and response details.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## Core modules
 
-Everything you need to create world-class documentation.
+<CardGroup cols={2}>
+  <Card title="Students" icon="user-graduate" href="/modules/students">
+    Enroll students, track fee status, and manage profiles end-to-end.
+  </Card>
+  <Card title="Fee collection" icon="dollar-sign" href="/modules/fee-collection">
+    Collect fees, auto-generate receipts, and enforce balance limits.
+  </Card>
+  <Card title="Gatekeeper" icon="shield-halved" href="/modules/gatekeeper">
+    Barcode-scan entry with real-time attendance marking at the gate.
+  </Card>
+  <Card title="Attendance" icon="calendar-check" href="/modules/attendance">
+    View today's attendance, filter by class, and export date-range reports.
+  </Card>
+  <Card title="Teachers & payroll" icon="chalkboard-teacher" href="/modules/teachers">
+    Manage teacher profiles, revenue share, and monthly payout requests.
+  </Card>
+  <Card title="Student portal" icon="person-chalkboard" href="/modules/student-portal">
+    Students view their fee history, attendance, and upload a profile photo.
+  </Card>
+</CardGroup>
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+## Get started in four steps
 
-## Make your content agent ready
+<Steps>
+  <Step title="Install dependencies">
+    Clone the repository and install both backend and frontend packages.
+  </Step>
+  <Step title="Configure environment">
+    Set your MongoDB URI and JWT secret in `backend/.env`.
+  </Step>
+  <Step title="Seed the database">
+    Run `npm run seed` to create the initial owner account and sample data.
+  </Step>
+  <Step title="Log in">
+    Open the frontend, sign in as the OWNER, and explore your academy dashboard.
+  </Step>
+</Steps>
 
-Make your docs work for humans and AI agents alike.
-
-<Columns cols={2}>
-  <Card
-    title="Prompt component"
-    icon="robot"
-    href="/agent-ready/prompt"
-  >
-    Embed shareable AI prompts readers can copy or open in Cursor.
-  </Card>
-  <Card
-    title="Visibility"
-    icon="eye"
-    href="/agent-ready/visibility"
-  >
-    Show different content to humans and agents reading your docs.
-  </Card>
-  <Card
-    title="Contextual menu"
-    icon="bolt"
-    href="/agent-ready/contextual"
-  >
-    Give readers one-click access to Claude, ChatGPT, Cursor, and more.
-  </Card>
-  <Card
-    title="AI coding tools"
-    icon="wand-magic-sparkles"
-    href="/ai-tools/claude-code"
-  >
-    Set up Claude Code, Cursor, or Windsurf with Mintlify's skill.
-  </Card>
-</Columns>
-
-## Need inspiration?
-
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<Note>
+  The full setup walkthrough — including environment variables and first login — is in the [Quick start](/quickstart) guide.
+</Note>

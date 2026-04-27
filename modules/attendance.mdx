@@ -1,0 +1,106 @@
+---
+title: 'Attendance Management: Tracking and Reporting'
+description: 'Track daily student attendance automatically via Gatekeeper scans or manually from the admin dashboard, with live stats, filtering, and 90-day history.'
+---
+
+The Attendance module gives administrators a real-time view of who is in the academy each day. Records are created automatically whenever a student scans their barcode at the [Gatekeeper](/modules/gatekeeper) terminal, and can also be created or corrected by hand. The page offers two views—**Today** and **Date Range**—along with per-student history going back 90 days.
+
+## Views
+
+### Today view
+
+The Today view shows all attendance records for the current calendar day, calculated in Pakistan Standard Time (UTC+5). A stats bar at the top summarises key numbers at a glance:
+
+| Stat | Description |
+|---|---|
+| Total Students | Count of all active enrolled students (or filtered class total) |
+| Present | Students with a Present status |
+| Late | Students with a Late status |
+| Absent | Active students with no check-in record yet |
+| Rate % | `(Present + Late) / Total Students × 100`, rounded to the nearest whole number |
+
+<Note>
+The Today view automatically refreshes every 30 seconds. You do not need to reload the page to see students who have just scanned in at the gate.
+</Note>
+
+The attendance table below the stats bar contains the following columns:
+
+| Column | Notes |
+|---|---|
+| # | Row index |
+| Student | Student name |
+| ID | Student ID number |
+| Class | Enrolled class name |
+| Status | Colour-coded badge (see [statuses](#attendance-statuses) below) |
+| Check In | Exact time the record was created, displayed in PKT |
+| Marked By | Source badge: **Gatekeeper**, **Admin**, or **System** |
+| Actions | Status update dropdown (OWNER and ADMIN roles only) |
+
+You can narrow the table with the class filter dropdown or the search field, which matches against student name, ID, or class name.
+
+### Date range view
+
+Switch to the Date Range view to query any span of days. The page displays a daily breakdown table with **Present**, **Late**, and **Absent** counts for each date, followed by the full list of individual records for the selected period. Both the class filter and the search field apply here as well.
+
+## Attendance statuses
+
+| Status | Badge colour | Meaning |
+|---|---|---|
+| Present | Green | Student arrived and scanned in, or was manually marked present by an admin |
+| Late | Yellow | Student arrived after the expected window, or an admin changed the status to Late |
+| Absent | Red | No check-in recorded for the day; set manually or in bulk by the end-of-day absent sweep |
+| Excused | Blue | Admin marked the student absent for an approved reason |
+
+## How attendance is recorded automatically
+
+When a student scans their barcode at the Gatekeeper terminal and passes all verification checks (student status, fee status, and class schedule), the Gatekeeper controller immediately writes a new attendance record to the database:
+
+- **Status:** Present
+- **Check-in time:** The exact timestamp of the scan
+- **Marked By:** Gatekeeper
+- **Session:** Subject, teacher, room, and time slot from the active timetable entry (if one matches the scan time)
+
+If the student scans again later in the same day, the existing record is returned with `alreadyMarked: true` and no duplicate is created. The compound unique index on `{ student, date }` enforces this at the database level, so even concurrent scans cannot produce duplicate records.
+
+## Manual attendance marking
+
+Admins and owners can mark a student present directly from the Attendance page without requiring a physical scan.
+
+<Steps>
+  <Step title="Open the Attendance page">
+    Navigate to **Attendance** in the dashboard sidebar. The Today view loads by default.
+  </Step>
+  <Step title="Locate the student">
+    Use the search field to filter by name or student ID, or use the class dropdown to narrow the list to a specific class.
+  </Step>
+  <Step title="Open the Actions menu">
+    Click the **Actions** dropdown in the student's table row. This option is visible to OWNER and ADMIN roles.
+  </Step>
+  <Step title="Select a status">
+    Choose **Present**, **Late**, **Absent**, or **Excused** from the dropdown. The record is saved immediately and the table refreshes.
+  </Step>
+</Steps>
+
+## Updating an existing attendance record
+
+To correct a status that was already recorded (for example, changing Present to Late), follow the same steps above. Selecting a new status from the Actions dropdown calls `PUT /api/attendance/:id`, which overwrites the current status and sets **Marked By** to Admin.
+
+## Individual student attendance history
+
+Clicking on a student's name opens a detail panel showing up to 90 days of historical records, including a computed **attendance rate** (`(Present + Late) / Total × 100`). The history is sorted from most recent to oldest.
+
+## Date normalisation
+
+All date calculations use **Pakistan Standard Time (UTC+5)**. Dates are normalised to midnight PKT before being stored, so a student who scans at 11:58 PM PKT is recorded on the same day as one who scans at 8:00 AM PKT. This prevents edge cases where a late-night scan would roll over to the following day.
+
+## API reference
+
+| Method | Path | Roles | Description |
+|---|---|---|---|
+| `POST` | `/api/attendance/mark` | OWNER, OPERATOR, ADMIN, STAFF, PARTNER | Mark a single student present or with a given status |
+| `GET` | `/api/attendance/today` | OWNER, OPERATOR, ADMIN, STAFF, PARTNER | Fetch today's stats and all records |
+| `GET` | `/api/attendance/range` | OWNER, OPERATOR, ADMIN, STAFF, PARTNER | Fetch records for a date range |
+| `GET` | `/api/attendance/student/:id` | OWNER, OPERATOR, ADMIN, STAFF, PARTNER | Fetch 90-day history for one student |
+| `PUT` | `/api/attendance/:id` | OWNER, ADMIN | Update status on an existing record |
+| `POST` | `/api/attendance/mark-absent` | OWNER, ADMIN | Bulk-mark all students with no check-in as Absent |
+| `GET` | `/api/attendance/classes` | OWNER, OPERATOR, ADMIN, STAFF, PARTNER | List active classes for the filter dropdown |

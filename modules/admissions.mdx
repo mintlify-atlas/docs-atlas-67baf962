@@ -1,0 +1,84 @@
+---
+title: "Admissions and Leads: From Inquiry to Enrollment"
+description: "Capture prospective student leads via self-registration or manual entry, review pending applications, and convert approved leads into fully enrolled student records."
+---
+
+The Admissions module handles the front door of the academy — every student who joins begins here. Prospective students can register themselves using a public-facing kiosk form or a tablet stationed at the front desk, or staff can enter their details directly through the Admissions form. All self-registered submissions land in a pending queue where an owner or administrator reviews, approves, and ultimately converts the lead into an active student record.
+
+## Admissions workflow
+
+<Steps>
+  <Step title="Lead capture">
+    A prospective student submits the public registration form at `/register` (self-service) or a staff member opens the `/admissions` page and fills in the form on their behalf. The record is saved with `studentStatus: Pending`.
+  </Step>
+  <Step title="Pending review">
+    Submitted leads appear in the Registrations queue at `/registrations`. Only users with the `OWNER` or `ADMIN` role can access this queue.
+  </Step>
+  <Step title="Approval">
+    The reviewer opens the lead record. If the applicant meets the criteria, the reviewer approves the signup, assigns a class, roll number, session, and admission fee. An `Admission` record is created and the signup status moves to `Approved`.
+  </Step>
+  <Step title="Promotion to student">
+    After the admission fee is confirmed, the reviewer promotes the admission to a full `Student` record. The system auto-generates two fee records: an `Admission` fee (status: Paid) and a `Tuition` fee (status: Pending, due in 30 days by default).
+  </Step>
+  <Step title="Active enrollment">
+    The new student record is created with `studentStatus: Active`. Login credentials are generated automatically — username is the assigned `studentId` and the default password is `sca{rollNumber}` unless a custom password is provided during promotion.
+  </Step>
+</Steps>
+
+## Lead fields
+
+The signup (lead) record captures the following information at the point of self-registration:
+
+| Field | Description |
+|---|---|
+| Student name | Full name as the student wishes to be known |
+| Father's name | Parent or guardian full name |
+| Gender | Male or Female |
+| Parent phone | Primary contact number |
+| Student phone | Optional direct contact |
+| Address | Home address |
+| Preferred class | The class the student is interested in joining |
+| Preferred session | The academic session for enrollment |
+| Group | Academic stream preference (Pre-Medical, Pre-Engineering, etc.) |
+| Referral source | How the student heard about the academy |
+| Status | `Pending` on submission; moves to `Approved` after review |
+
+## Self-registration at `/register`
+
+The public registration page is a simplified, login-free form designed for prospective students to express interest. It fetches the list of active classes and sessions dynamically so the student can indicate their preferences. On submission, the data is posted to `/api/public/register` and a confirmation screen is shown.
+
+<Info>
+  The `/register` page has no sidebar or authentication. It is safe to share as a link or display as a QR code at the academy entrance.
+</Info>
+
+## Kiosk registration
+
+The KioskRegister page (`/register`) doubles as an in-person registration station. It is optimised for tablet use — large text, minimal navigation, and a simple single-page form. Staff place a tablet at the front desk and hand it to walk-in enquiries. The flow is identical to the public registration form; submissions land in the same pending queue.
+
+## Pending approvals queue at `/registrations`
+
+The Registrations page lists all submissions with `status: Pending`, sorted by submission date with the most recent first. For each submission, an authorised reviewer can:
+
+- View the lead's details
+- Assign a class, session, and roll number
+- Enter the admission fee
+- Approve the record (creates an `Admission` document)
+- Reject or discard the submission
+
+<Warning>
+  Approving a signup requires a unique roll number. The system validates against existing student records and returns an error if the number is already in use.
+</Warning>
+
+## Direct admission via the Admissions form
+
+Staff with access to the dashboard can bypass the lead pipeline entirely by using the **Admissions** page (`/admissions`). This form creates a student record directly with `studentStatus: Active` — no pending queue or approval step. It supports:
+
+- Class and session selection (session rate and discount auto-populated from Configuration)
+- Subject selection with locked-in fees from the class record
+- A draft persistence system that saves form progress to `localStorage` so accidental navigation does not lose data
+- Photo capture via the `ImageCapture` component
+- Admission slip printing immediately after save using the PDF receipt system
+
+After saving, a success modal shows the student's credentials and an option to print the admission slip.
+
+For details on what happens to the student record after enrollment — fee tracking, status management, and profile pages — see [Students](/modules/students).

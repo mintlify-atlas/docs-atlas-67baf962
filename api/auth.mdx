@@ -1,0 +1,291 @@
+---
+title: Authentication — Login, Session, and Staff Management
+description: Authenticate with the SCA Academia API using HTTP-only cookies, manage your session, and control staff accounts as an OWNER.
+---
+
+The SCA Academia API uses cookie-based authentication. When you log in, the server sets an HTTP-only `authToken` cookie that is sent automatically on every subsequent request — you do not need to attach a token to request headers manually. All protected endpoints require this cookie to be present and valid.
+
+## POST /api/auth/login
+
+Authenticates a user and sets the `authToken` cookie. This is the only public endpoint — all others require an active session.
+
+<Note>
+  The `authToken` cookie is HTTP-only and set automatically by the server. Browsers and HTTP clients with cookie jar support (such as `curl --cookie-jar`) will manage it for you. Never send tokens in the request body.
+</Note>
+
+### Request body
+
+<ParamField body="username" type="string" required>
+  The account username.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  The account password.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean" required>
+  `true` on a successful login.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  A welcome message confirming the authenticated user's name.
+</ResponseField>
+
+<ResponseField name="user" type="object" required>
+  The authenticated user's public profile.
+  <Expandable title="properties">
+    <ResponseField name="_id" type="string">
+      MongoDB document ID.
+    </ResponseField>
+    <ResponseField name="username" type="string">
+      The user's login username.
+    </ResponseField>
+    <ResponseField name="fullName" type="string">
+      The user's display name.
+    </ResponseField>
+    <ResponseField name="role" type="string">
+      One of `"OWNER"`, `"PARTNER"`, or `"STAFF"`.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+**Error responses**
+
+| Status | Condition |
+|--------|-----------|
+| `400` | Missing `username` or `password` |
+| `401` | Invalid credentials |
+| `403` | Account is deactivated |
+
+### Example
+
+```bash
+curl --request POST \
+  --url https://your-api.example.com/api/auth/login \
+  --header 'Content-Type: application/json' \
+  --cookie-jar ./cookies.txt \
+  --data '{
+    "username": "admin",
+    "password": "yourpassword"
+  }'
+```
+
+---
+
+## GET /api/auth/me
+
+Returns the profile of the currently authenticated user. Requires an active session cookie.
+
+### Response
+
+<ResponseField name="success" type="boolean" required>
+  `true` when the session is valid.
+</ResponseField>
+
+<ResponseField name="user" type="object" required>
+  The current user's public profile. Contains the same fields as the login response (`_id`, `username`, `fullName`, `role`).
+</ResponseField>
+
+---
+
+## POST /api/auth/logout
+
+Clears the `authToken` cookie, ending the session. Requires an active session cookie.
+
+### Response
+
+<ResponseField name="success" type="boolean" required>
+  `true` when logout completes.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Confirmation message.
+</ResponseField>
+
+---
+
+## POST /api/auth/create-staff
+
+Creates a new STAFF user account. Only the OWNER role can call this endpoint.
+
+<Warning>
+  This endpoint is restricted to users with the `OWNER` role. Requests from STAFF accounts will be rejected with a `403` error.
+</Warning>
+
+### Request body
+
+<ParamField body="username" type="string" required>
+  Unique login username for the new staff member.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  Password for the new account. Must be at least 6 characters.
+</ParamField>
+
+<ParamField body="fullName" type="string" required>
+  The staff member's full display name.
+</ParamField>
+
+<ParamField body="role" type="string">
+  Account role. Currently, only `"STAFF"` can be created via this endpoint. Defaults to `"STAFF"`.
+</ParamField>
+
+<ParamField body="phone" type="string">
+  Contact phone number.
+</ParamField>
+
+<ParamField body="email" type="string">
+  Contact email address.
+</ParamField>
+
+<ParamField body="permissions" type="string[]">
+  List of permission keys granted to this account (e.g., `["dashboard", "students"]`). Defaults to `["dashboard"]`.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean" required>
+  `true` when the account is created.
+</ResponseField>
+
+<ResponseField name="user" type="object" required>
+  The newly created staff member's public profile.
+</ResponseField>
+
+---
+
+## GET /api/auth/staff
+
+Returns a list of all STAFF accounts. Requires the `OWNER` role.
+
+<Warning>
+  This endpoint is restricted to users with the `OWNER` role.
+</Warning>
+
+### Response
+
+<ResponseField name="success" type="boolean" required>
+  `true` on success.
+</ResponseField>
+
+<ResponseField name="count" type="number" required>
+  Total number of staff accounts returned.
+</ResponseField>
+
+<ResponseField name="staff" type="object[]" required>
+  Array of staff public profiles. Each object contains `_id`, `userId`, `username`, `fullName`, `role`, `isActive`, and `permissions`.
+</ResponseField>
+
+---
+
+## PATCH /api/auth/staff/:id
+
+Updates an existing staff account's details or permissions. Requires the `OWNER` role.
+
+<Warning>
+  This endpoint is restricted to users with the `OWNER` role.
+</Warning>
+
+### Path parameters
+
+<ParamField path="id" type="string" required>
+  The MongoDB `_id` of the staff account to update.
+</ParamField>
+
+### Request body
+
+Send any subset of the staff fields: `fullName`, `phone`, `email`, `permissions`.
+
+### Response
+
+<ResponseField name="success" type="boolean" required>
+  `true` when the update is applied.
+</ResponseField>
+
+<ResponseField name="user" type="object" required>
+  The updated staff member's public profile.
+</ResponseField>
+
+---
+
+## DELETE /api/auth/staff/:id
+
+Permanently removes a staff account. Requires the `OWNER` role. Accounts with `canBeDeleted: false` cannot be removed.
+
+<Warning>
+  Seeded core accounts (`canBeDeleted: false`) cannot be deleted. Attempting to delete them returns `403`. Use the toggle endpoint to deactivate them instead.
+</Warning>
+
+### Path parameters
+
+<ParamField path="id" type="string" required>
+  The MongoDB `_id` of the staff account to delete.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean" required>
+  `true` when the account is removed.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Confirmation message.
+</ResponseField>
+
+---
+
+## POST /api/auth/reset-password
+
+Resets the password for any staff account. Requires the `OWNER` role.
+
+### Request body
+
+<ParamField body="userId" type="string" required>
+  The MongoDB `_id` of the account whose password should be reset.
+</ParamField>
+
+<ParamField body="newPassword" type="string" required>
+  The new password to set.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean" required>
+  `true` when the password is updated.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Confirmation message.
+</ResponseField>
+
+---
+
+## PATCH /api/auth/staff/:id/toggle
+
+Activates or deactivates a staff account by toggling its `isActive` flag. Requires the `OWNER` role.
+
+<Warning>
+  This endpoint is restricted to users with the `OWNER` role. Deactivating an account prevents that user from logging in.
+</Warning>
+
+### Path parameters
+
+<ParamField path="id" type="string" required>
+  The MongoDB `_id` of the staff account to toggle.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean" required>
+  `true` when the status is updated.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Confirms whether the account was activated or deactivated.
+</ResponseField>
+
+<ResponseField name="user" type="object" required>
+  The updated staff member's public profile, including the new `isActive` value.
+</ResponseField>

@@ -1,0 +1,113 @@
+---
+title: "Payroll: Teacher Balances and Payout Management"
+description: "How SCA Academia handles teacher payroll — from the 70/30 split model and balance states to payout requests, owner approvals, and payment vouchers."
+---
+
+The Payroll module manages the money the academy owes its teachers. SCA Academia uses a **manual payroll model**: the 70% teacher share is not distributed automatically when a fee is collected. Instead, the owner reviews accumulated teacher balances and pays teachers explicitly, creating a full audit trail in the transaction ledger.
+
+## The manual payroll model
+
+Fee collection and teacher payout are intentionally decoupled:
+
+1. **Fee collected** — the full amount enters the ledger as a single `INCOME / FLOATING` transaction. No split occurs at this point. See [Fee collection](/modules/fee-collection).
+2. **Daily closing** — staff reconcile floating cash. `FLOATING` transactions become `VERIFIED` and each teacher's `balance.floating` moves to `balance.verified`.
+3. **Revenue distribution** — when the owner triggers a payroll cycle, the system calculates each teacher's 70% share from enrolled student fees and credits their `balance.pending`.
+4. **Teacher payout** — the owner manually pays the teacher, reducing their `balance.pending` and creating an `EXPENSE / Teacher Payout` transaction.
+
+This design gives the owner full control over the timing and amount of each payout and makes every payment traceable.
+
+## Teacher balance fields
+
+Each teacher document tracks earnings across three balance states:
+
+| Field | Meaning |
+|-------|---------|
+| `balance.floating` | Share earned from fees that are still `FLOATING` (not yet day-closed) |
+| `balance.verified` | Share earned from fees that have been day-closed and verified |
+| `balance.pending` | Amount credited and ready to be paid out |
+| `totalPaid` | Cumulative amount the teacher has been paid all time |
+
+The payable amount for percentage-based teachers is `balance.floating + balance.verified`. For fixed-salary teachers it is `balance.pending`.
+
+<Note>
+  A teacher's balance cannot be paid out until the underlying fee transactions have been verified through daily closing. Floating balances represent cash that is still physically in a collector's hands. Complete the [daily closing](/modules/finance) step first to move funds into the verified state before processing payouts.
+</Note>
+
+## Payroll flow
+
+<Steps>
+  <Step title="Verify daily cash (prerequisite)">
+    Ensure all staff have completed daily closing for the relevant period. This moves `FLOATING` transactions to `VERIFIED` and promotes each teacher's `balance.floating` to `balance.verified`. The Payroll page shows each teacher's current balance breakdown so you can confirm readiness.
+  </Step>
+
+  <Step title="Review teacher balances on the Payroll page">
+    Open the Payroll page. The dashboard displays all active teachers with their subject, compensation type, payable balance, and total paid to date. Use the search bar to filter by teacher name. Expand a teacher row to see the per-class and per-student earnings breakdown.
+  </Step>
+
+  <Step title="Initiate a payout">
+    Click the **Pay** button on a teacher row to open the payout dialog. The dialog shows the teacher's available balance. Enter the payout amount (must not exceed the available balance) and an optional note. Click **Process Payout** to submit.
+  </Step>
+
+  <Step title="Backend processes the payout">
+    The backend (`POST /api/finance/teacher-payout`) validates the amount against `balance.pending`, deducts it, increments `teacher.totalPaid`, and creates:
+
+    - A `TeacherPayment` record with a voucher ID, month, year, payment method, and session reference
+    - A `Transaction` of `type: "EXPENSE"`, `category: "Teacher Payout"`, `status: "VERIFIED"`
+
+    Both the teacher and the acting owner receive a `FINANCE` notification.
+  </Step>
+
+  <Step title="Print the payment voucher">
+    After a successful payout, the system can generate a PDF payment voucher (`TeacherPaymentPDF`) containing the voucher ID, teacher name, subject, amount paid, payment date, payment method, and session name. Open or download the PDF from the confirmation dialog.
+  </Step>
+</Steps>
+
+## Payout request workflow
+
+Teachers can proactively request payouts rather than waiting for the owner to initiate one.
+
+### Teacher submits a request
+
+A teacher sends `POST /api/payroll/request` with their `teacherId` and the requested `amount`. The system checks:
+
+- The teacher exists
+- The teacher's `balance.verified` covers the requested amount
+- There is no existing `PENDING` payout request for that teacher
+
+If all checks pass, a `PayoutRequest` document is created with `status: "PENDING"` and the owner receives a notification.
+
+### PayoutRequest document fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `teacherId` | ObjectId | Reference to the Teacher document |
+| `teacherName` | String | Denormalized name for display |
+| `amount` | Number | Requested payout amount |
+| `status` | String | `PENDING`, `APPROVED`, or `PAID` |
+| `requestDate` | Date | When the request was submitted |
+| `approvedBy` | ObjectId | Owner who approved (populated on approval) |
+| `notes` | String | Optional notes from teacher or owner |
+
+### Owner approves or rejects
+
+The owner reviews all pending requests via `GET /api/payroll/requests` (filterable by `status` and `teacherId`). To approve, the owner calls `POST /api/payroll/approve/:requestId`. To reject, `POST /api/payroll/reject/:requestId`. The Payroll page lists all pending requests with the teacher's current balance for context.
+
+## Payroll page overview
+
+The Payroll page (`/payroll`) is accessible to the owner only and is organized into sections:
+
+- **Summary stats** — total pending payout amount, number of pending requests, total teachers
+- **Earnings breakdown** — real-time per-teacher earnings calculated from enrollment data (`GET /api/payroll/earnings-breakdown`)
+- **Teacher table** — all active teachers with expandable rows showing class-level and student-level fee contributions
+- **Pending requests panel** — list of submitted `PayoutRequest` documents awaiting action
+- **Payment history** — past `TeacherPayment` records with voucher IDs and amounts
+
+## Manual credits
+
+The owner can manually credit a teacher's `balance.pending` outside the automatic distribution cycle using `POST /api/payroll/credit`. This creates a `LIABILITY` transaction and is used for adjustments, bonuses, or correcting allocation errors. Manual credits appear in the transaction history with `category: "Teacher Share"`.
+
+## Session salary generation
+
+For fixed-salary teachers, the owner can trigger `POST /api/payroll/generate-session-salaries` to accrue the session's fixed salary amounts into each teacher's `balance.pending`. This is separate from the percentage-based split and applies only to teachers configured with `compensation.type: "fixed"`.
+
+For the upstream cash flow that feeds teacher balances, see [Fee collection](/modules/fee-collection) and [Finance](/modules/finance).

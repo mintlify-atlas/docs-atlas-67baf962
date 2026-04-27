@@ -1,0 +1,95 @@
+---
+title: "Collecting Student Fees: The Complete Guide"
+description: "Step-by-step guide to collecting fees in SCA Academia, including the modal workflow, balance enforcement, receipt generation, and fee status lifecycle."
+---
+
+Fee collection is the primary cash-intake action in SCA Academia. Every collection creates an auditable transaction, notifies the owner, and automatically updates the student's fee status. Staff collect fees from the Students page using the dollar-sign button on any student row.
+
+## How to collect a fee
+
+<Steps>
+  <Step title="Open the collection modal">
+    On the Students page, locate the student row and click the **$** (dollar sign) button in the actions column. The button is hidden for withdrawn students. The Collect Fee modal opens immediately.
+  </Step>
+
+  <Step title="Review the student's financial summary">
+    The top of the modal shows a blue/purple gradient summary card with three read-only values:
+
+    - **Total Fee** — the student's configured fee amount
+    - **Paid Amount** — cumulative payments already received
+    - **Remaining Balance** — computed as `totalFee − paidAmount`, never negative
+
+    This summary is the key input for deciding how much to collect.
+  </Step>
+
+  <Step title="Confirm the collection month">
+    Below the summary, the **Collection Month** field displays the current calendar month (e.g., `April 2026`) as read-only text. It is not a dropdown — the month is always the current month and cannot be changed by the collector.
+  </Step>
+
+  <Step title="Enter the payment amount">
+    Type the amount being collected into the **Amount (Rs.)** numeric input. The **Collect Fee** button remains disabled until the entered amount is greater than zero and no submission is already pending.
+  </Step>
+
+  <Step title="Submit the collection">
+    Click **$ Collect Fee**. The button shows a spinner while the request is processing. The backend validates the amount, creates all required records, sends notifications, and responds with the new receipt number.
+  </Step>
+
+  <Step title="Confirm the success screen">
+    On success, the modal switches to a green success state showing:
+
+    - A large green checkmark icon
+    - **"Fee Collected!"** heading
+    - Amount collected and collection month
+
+    Click **Done** to close the modal. The student list refreshes automatically to reflect the updated fee status badge.
+  </Step>
+</Steps>
+
+## Receipt number format
+
+Every successful collection auto-generates a unique receipt number stored on the `FeeRecord` document:
+
+```text
+FEE-YYYYMM-XXXX
+```
+
+| Segment | Example | Description |
+|---------|---------|-------------|
+| `FEE` | `FEE` | Fixed prefix identifying fee payments |
+| `YYYYMM` | `202604` | Four-digit year and two-digit month of collection |
+| `XXXX` | `0731` | Zero-padded random four-digit suffix |
+
+A full example: `FEE-202604-0731`
+
+The receipt number is unique across the system (`sparse` index on the `FeeRecord` collection). It is returned in the API response and displayed on the success screen.
+
+## Fee status lifecycle
+
+The student's `feeStatus` field is recalculated automatically by the Student model's pre-save hook on every payment. It is never set manually.
+
+| Status | Condition |
+|--------|-----------|
+| `pending` | `paidAmount = 0` |
+| `partial` | `0 < paidAmount < totalFee` |
+| `paid` | `paidAmount >= totalFee` |
+
+The Students table displays `paid` with a green glow badge, `partial` with an amber badge, and `pending` with a red badge.
+
+<Warning>
+  The backend enforces the remaining balance. If the submitted amount exceeds `totalFee − paidAmount`, the request is rejected with an error message quoting both the submitted amount and the actual remaining balance. The modal displays this error as a toast notification. You cannot collect more than what the student owes.
+</Warning>
+
+## What happens on the backend
+
+Each successful fee collection triggers the following sequence:
+
+1. **FeeRecord created** — a permanent payment record is saved with the amount, month, receipt number, collector reference, and `status: "PAID"`.
+2. **Student updated** — `paidAmount` is incremented and `feeStatus` is recalculated by the pre-save hook.
+3. **Transaction created** — a `type: "INCOME"`, `status: "FLOATING"`, `category: "Tuition"` transaction is inserted into the ledger. This entry represents unverified cash in the collector's hands until the day is closed.
+4. **Collector's `totalCash` updated** — the collecting staff member's running cash total is incremented for daily closing reconciliation.
+5. **Owner notified** — the system sends a `FINANCE` notification to the owner with the student name, student ID, amount paid, and remaining balance.
+6. **"Fully Paid" notification** — if this collection moves `feeStatus` from `partial` or `pending` to `paid`, a second notification is sent to the owner confirming the student has fully paid their fee.
+
+<Note>
+  The **70/30 split** shown in the modal is informational only. At collection time, the full fee amount is recorded as a single `INCOME/FLOATING` transaction. No automatic split occurs. The actual division of funds between teachers (70%) and the academy (30%) happens later during payroll, when the owner manually processes teacher payouts. See [Payroll](/modules/payroll) for details.
+</Note>

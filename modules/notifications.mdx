@@ -1,0 +1,100 @@
+---
+title: 'Notifications: System Alerts and Event Triggers'
+description: 'How the notification system works, which events create notifications, the available types, and the API endpoints for fetching and marking notifications as read.'
+---
+
+The notification system delivers real-time alerts to staff accounts when key events occur in the ERP. Notifications are created automatically as a side-effect of business operations — fee collection, gate denials, and other system events — and surfaced in the dashboard header as a bell icon with an unread badge count.
+
+Notifications can target a specific user by their `recipient` ObjectId, or broadcast to all users of a given role via `recipientRole`. This means, for example, that a fee collection notification addressed to `recipientRole: "OWNER"` will appear for every user with the OWNER role without needing to know their specific ID at write time.
+
+<Note>
+  Notification creation is non-blocking. If writing a notification to the database fails (due to a transient error or timeout), the underlying operation — fee collection, scan result, etc. — continues and returns a successful response. The system logs the failure but does not surface it to the end user.
+</Note>
+
+## Notification schema
+
+Each notification document contains the following fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `recipient` | ObjectId (ref: User) | The specific user this notification targets, if any |
+| `recipientRole` | string | The role this notification targets (`OWNER`, `PARTNER`, `STAFF`) |
+| `message` | string | Human-readable notification text |
+| `type` | string | Category of the event — see types table below |
+| `relatedId` | string | ID of the related document (e.g. a transaction or student ID) |
+| `isRead` | boolean | Whether the notification has been read; defaults to `false` |
+| `createdAt` | Date | Timestamp set automatically by Mongoose |
+
+## Notification types and triggers
+
+| Type | Trigger event | Typical recipient |
+|------|--------------|-------------------|
+| `FINANCE` | A fee payment is recorded for a student | OWNER (by `recipientRole`) |
+| `FINANCE` | A student's `feeStatus` transitions to `"paid"` (fully settled) | OWNER — a dedicated "FULLY PAID" message is sent in addition to the regular collection notification |
+| `FINANCE` | A teacher payout request is submitted or processed | OWNER and/or the teacher |
+| `SYSTEM` | General system events not covered by other categories | Varies |
+
+The `FINANCE` type is the most common. Every successful fee collection creates a `FINANCE` notification to the OWNER role showing the student's name, student ID, amount paid, and remaining balance. When a payment brings the balance to zero and flips `feeStatus` to `"paid"`, a second `FINANCE` notification is sent with a "FULLY PAID" label so the OWNER can track cleared accounts at a glance. There are only two notification types in the system: `FINANCE` for financial events and `SYSTEM` (the default) for general alerts.
+
+## API endpoints
+
+### Fetch notifications
+
+```http
+GET /api/notifications
+```
+
+Returns the 10 most recent notifications for the authenticated user, matching either by `recipient` (their user ID) or `recipientRole` (their role). Requires a valid staff session cookie.
+
+**Response shape:**
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "_id": "...",
+      "recipientRole": "OWNER",
+      "message": "Fee collected: Ali Hassan (260001) — PKR 5,000 paid. Balance: PKR 3,000",
+      "type": "FINANCE",
+      "relatedId": "txn_abc123",
+      "isRead": false,
+      "createdAt": "2026-04-27T08:30:00.000Z"
+    }
+  ],
+  "unreadCount": 3
+}
+```
+
+The `unreadCount` field is derived client-side by counting documents where `isRead` is `false` within the returned page. The badge in the dashboard header displays this count.
+
+### Mark as read
+
+```http
+POST /api/notifications/mark-read
+```
+
+Pass `{ "notificationId": "<id>" }` to mark a single notification as read, or `{ "markAll": true }` to clear all unread notifications for the current user and their role.
+
+```json
+// Mark a single notification
+{ "notificationId": "664abc123def456789012345" }
+
+// Mark all as read
+{ "markAll": true }
+```
+
+## Database indexes
+
+Two compound indexes ensure notification lookups remain fast as volume grows:
+
+```javascript
+notificationSchema.index({ recipient: 1, isRead: 1 });
+notificationSchema.index({ recipientRole: 1, isRead: 1 });
+```
+
+These cover the primary query pattern: find unread notifications for a specific user ID **or** their role, sorted by creation date descending.
+
+## Related
+
+For details on the fee events that trigger `FINANCE` notifications, see [Fee collection](/modules/fee-collection).

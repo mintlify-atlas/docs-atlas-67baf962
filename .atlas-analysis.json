@@ -1,24 +1,11 @@
 {
-  "$schema": "https://mintlify.com/docs.json",
-  "name": "SCA Academia",
+  "projectType": "saas",
+  "projectName": "SCA Academia",
+  "projectDescription": "A full-stack ERP system for coaching academies covering student management, fee collection, attendance tracking, payroll, gatekeeper access control, and a student self-service portal.",
   "theme": "luma",
-  "colors": {
-    "primary": "#2563EB",
-    "light": "#DBEAFE",
-    "dark": "#1E3A8A"
-  },
-  "favicon": "/favicon.svg",
-  "navbar": {
-    "primary": {
-      "type": "github",
-      "href": "https://github.com/muz4miL/sca-academia"
-    }
-  },
-  "footer": {
-    "socials": {
-      "github": "https://github.com/muz4miL/sca-academia"
-    }
-  },
+  "primaryColor": "#2563EB",
+  "lightColor": "#DBEAFE",
+  "darkColor": "#1E3A8A",
   "navigation": {
     "tabs": [
       {
@@ -102,5 +89,41 @@
         ]
       }
     ]
-  }
+  },
+  "keyFeatures": [
+    "Student lifecycle management — admissions, enrollment, status tracking, and fee history",
+    "Fee collection with 70/30 teacher/academy revenue split, receipt generation, and balance enforcement",
+    "Gatekeeper barcode-scanning entry system with real-time attendance auto-marking",
+    "Role-based access control with OWNER, PARTNER, STAFF, and OPERATOR roles",
+    "Teacher payroll management with unverified/verified cash flow and payout requests",
+    "Student self-service portal with profile picture upload and fee/attendance visibility",
+    "Daily closing workflow — FLOATING transactions verified and reconciled by staff",
+    "Timetable, sessions, and class scheduling with subject-teacher assignment",
+    "Inventory tracking for academy assets and supplies",
+    "Lead and admissions pipeline with registration approval workflow"
+  ],
+  "publicApiSurface": [
+    "POST /api/auth/login",
+    "GET /api/auth/me",
+    "GET /api/students",
+    "POST /api/students",
+    "PUT /api/students/:id",
+    "POST /api/students/:id/collect-fee",
+    "GET /api/students/:id/fee-history",
+    "GET /api/teachers",
+    "POST /api/teachers",
+    "GET /api/finance",
+    "POST /api/finance",
+    "GET /api/attendance/today",
+    "POST /api/attendance/mark",
+    "GET /api/attendance/range",
+    "GET /api/attendance/student/:id",
+    "POST /api/gatekeeper/scan",
+    "GET /api/classes",
+    "POST /api/payroll",
+    "GET /api/notifications",
+    "GET /api/student-portal/me",
+    "POST /api/student-portal/profile-picture",
+    "GET /api/config"
+  ]
 }

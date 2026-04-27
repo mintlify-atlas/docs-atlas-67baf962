@@ -1,0 +1,343 @@
+---
+title: "Finance API — Transactions, Ledger, and Financial Overview"
+description: "Record income and expense transactions, retrieve the full finance ledger with filters, manage individual finance records, and fetch aggregate monthly stats for the owner dashboard."
+---
+
+The Finance API covers two distinct data layers. The **Transaction** model is the system's source-of-truth ledger — it is written automatically when fees are collected, payouts are processed, and day-closes happen. The **FinanceRecord** model is a lighter, manually managed record used by the frontend for miscellaneous tracking. Most aggregate reporting (the `stats/overview` endpoint and the dashboard stats endpoint) aggregates directly from Transactions.
+
+## Transaction types
+
+| Type | Typical use |
+|---|---|
+| `INCOME` | Student fee payment received |
+| `EXPENSE` | Cash leaving the academy (payroll, rent, utilities, etc.) |
+| `CREDIT` | Teacher's share of a fee, credited to their wallet |
+| `LIABILITY` | Debt recorded (e.g. manual payroll credit) — no cash movement |
+| `REFUND` | Reversal of a previously collected fee |
+
+## Endpoints
+
+### Get finance records
+
+```
+GET /api/finance
+```
+
+Returns all FinanceRecord documents, optionally filtered. Results are sorted newest-first and include a populated `studentId` reference (`name`, `class`).
+
+**Query parameters**
+
+<ParamField query="status" type="string">
+  Filter by record status (e.g. `FLOATING`, `VERIFIED`).
+</ParamField>
+
+<ParamField query="month" type="string">
+  Filter by month name (e.g. `"January"`).
+</ParamField>
+
+<ParamField query="year" type="number">
+  Filter by four-digit year.
+</ParamField>
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="count" type="number">Number of records returned.</ResponseField>
+<ResponseField name="data" type="FinanceRecord[]">Array of finance record objects.</ResponseField>
+
+---
+
+### Get finance overview stats
+
+```
+GET /api/finance/stats/overview
+```
+
+Returns monthly aggregate figures for the current calendar month, synced with the owner dashboard. Requires the `OWNER` role.
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="data" type="object">
+  <Expandable title="fields">
+    <ResponseField name="totalIncome" type="number">Monthly INCOME transactions minus REFUND transactions (PKR).</ResponseField>
+    <ResponseField name="totalExpenses" type="number">Monthly EXPENSE transactions (PKR).</ResponseField>
+    <ResponseField name="netProfit" type="number">Monthly income minus monthly expenses (PKR).</ResponseField>
+    <ResponseField name="totalExpected" type="number">All-time expected fees across all students (PKR).</ResponseField>
+    <ResponseField name="totalPending" type="number">All-time unpaid fees (PKR).</ResponseField>
+    <ResponseField name="pendingStudentsCount" type="number">Students with `pending` or `partial` fee status.</ResponseField>
+    <ResponseField name="totalTeacherLiabilities" type="number">Sum of all active teachers' floating + verified + pending balances (PKR).</ResponseField>
+    <ResponseField name="teacherPayroll" type="object[]">Per-teacher payroll summary array.</ResponseField>
+    <ResponseField name="collectionRate" type="number">Percentage of total expected fees collected (0–100).</ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+### Get finance history (ledger)
+
+```
+GET /api/finance/history
+```
+
+Returns a merged, chronological ledger that combines Transaction documents, Expense documents, and TeacherPayment records. Supports pagination and type filtering.
+
+**Query parameters**
+
+<ParamField query="type" type="string">
+  Filter by transaction type (`INCOME`, `EXPENSE`, `CREDIT`, `LIABILITY`, `REFUND`, or `ALL`).
+</ParamField>
+
+<ParamField query="startDate" type="string">
+  ISO 8601 start date for the date range filter.
+</ParamField>
+
+<ParamField query="endDate" type="string">
+  ISO 8601 end date for the date range filter.
+</ParamField>
+
+<ParamField query="page" type="number">
+  Page number (default: `1`).
+</ParamField>
+
+<ParamField query="limit" type="number">
+  Records per page (default: `50`).
+</ParamField>
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="count" type="number">Number of records in this response.</ResponseField>
+<ResponseField name="total" type="number">Total matching Transaction count (not including Expense/TeacherPayment rows).</ResponseField>
+<ResponseField name="data" type="object[]">Merged ledger entries sorted by date descending. Each entry includes a `source` field (`"transaction"`, `"expense"`, or `"teacher-payment"`).</ResponseField>
+
+---
+
+### Get dashboard stats
+
+```
+GET /api/finance/dashboard-stats
+```
+
+Returns the key financial and enrollment KPIs for the main owner dashboard. Requires the `OWNER` role.
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="data" type="object">
+  <Expandable title="fields">
+    <ResponseField name="monthlyIncome" type="number">Total INCOME this month (PKR).</ResponseField>
+    <ResponseField name="monthlyExpenses" type="number">Total EXPENSE this month (PKR).</ResponseField>
+    <ResponseField name="todayIncome" type="number">Total INCOME collected today (PKR).</ResponseField>
+    <ResponseField name="floatingCash" type="number">Total unverified FLOATING income across all collectors (PKR).</ResponseField>
+    <ResponseField name="totalStudents" type="number">All-time student count.</ResponseField>
+    <ResponseField name="activeStudents" type="number">Students with `Active` status.</ResponseField>
+    <ResponseField name="totalTeachers" type="number">Active teachers count.</ResponseField>
+    <ResponseField name="totalExpected" type="number">All-time total fees expected (PKR).</ResponseField>
+    <ResponseField name="totalCollected" type="number">All-time fees collected (PKR).</ResponseField>
+    <ResponseField name="totalPending" type="number">All-time unpaid fees (PKR).</ResponseField>
+    <ResponseField name="collectionRate" type="number">Fee collection rate as a percentage.</ResponseField>
+    <ResponseField name="teacherOwed" type="number">Total outstanding teacher liabilities (PKR).</ResponseField>
+    <ResponseField name="netProfit" type="number">Monthly income minus monthly expenses (PKR).</ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+### Get a single finance record
+
+```
+GET /api/finance/:id
+```
+
+Returns one FinanceRecord by its MongoDB `_id`.
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>MongoDB ObjectId of the finance record.</ParamField>
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="data" type="object">Finance record with populated `studentId`.</ResponseField>
+
+---
+
+### Create a finance record
+
+```
+POST /api/finance
+```
+
+Creates a new FinanceRecord (manual entry). All fields from the request body are saved directly — no automatic revenue splitting occurs through this endpoint.
+
+**Request body**
+
+<ParamField body="type" type="string" required>
+  Transaction type: `INCOME`, `EXPENSE`, `CREDIT`, `LIABILITY`, or `REFUND`.
+</ParamField>
+
+<ParamField body="category" type="string" required>
+  Category. Common values: `Tuition`, `Teacher Payout`, `Rent`, `Utilities`, `Salaries`, `Misc`.
+</ParamField>
+
+<ParamField body="amount" type="number" required>
+  Amount in PKR (must be ≥ 0).
+</ParamField>
+
+<ParamField body="description" type="string">
+  Free-text description (max 500 characters).
+</ParamField>
+
+<ParamField body="date" type="string">
+  ISO 8601 date. Defaults to the current date if omitted.
+</ParamField>
+
+<ParamField body="status" type="string">
+  One of `FLOATING`, `VERIFIED`, `CANCELLED`, `REFUNDED`. Defaults to `FLOATING`.
+</ParamField>
+
+<ParamField body="studentId" type="string">
+  MongoDB ObjectId of the related student (optional).
+</ParamField>
+
+**Response** — `201 Created`
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="message" type="string">`"Finance record created successfully"`</ResponseField>
+<ResponseField name="data" type="object">Saved finance record.</ResponseField>
+
+**Example**
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.example.com/api/finance \
+  -H "Content-Type: application/json" \
+  --cookie ./cookies.txt \
+  -d '{
+    "type": "EXPENSE",
+    "category": "Rent",
+    "amount": 25000,
+    "description": "Monthly office rent — May 2026",
+    "status": "VERIFIED"
+  }'
+```
+</CodeGroup>
+
+---
+
+### Update a finance record
+
+```
+PUT /api/finance/:id
+```
+
+Updates any field on a FinanceRecord. A common use-case is promoting a record from `FLOATING` to `VERIFIED` after a day-close review.
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>MongoDB ObjectId of the finance record.</ParamField>
+
+**Request body** — any subset of the FinanceRecord fields.
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="message" type="string">`"Finance record updated successfully"`</ResponseField>
+<ResponseField name="data" type="object">Updated finance record.</ResponseField>
+
+---
+
+### Delete a finance record
+
+```
+DELETE /api/finance/:id
+```
+
+Permanently removes a FinanceRecord. To delete a core Transaction (from the ledger), use `DELETE /api/finance/transaction/:id` instead.
+
+<Warning>
+  Deletion is permanent and cannot be undone. Only the `OWNER` role should perform this action.
+</Warning>
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>MongoDB ObjectId of the finance record.</ParamField>
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="message" type="string">`"Finance record deleted successfully"`</ResponseField>
+<ResponseField name="data" type="object">The deleted record.</ResponseField>
+
+---
+
+### Delete a transaction
+
+```
+DELETE /api/finance/transaction/:id
+```
+
+Deletes a core Transaction or Expense document from the ledger. Requires the `OWNER` or `ADMIN` role.
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>MongoDB ObjectId of the Transaction or Expense document.</ParamField>
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="message" type="string">`"Transaction deleted."` or `"Expense deleted."`</ResponseField>
+<ResponseField name="data" type="object">The deleted document.</ResponseField>
+
+---
+
+### Close the day
+
+```
+POST /api/finance/close-day
+```
+
+Locks all `FLOATING` income transactions collected by the current user into `VERIFIED` status. Also promotes each affected teacher's `balance.floating` to `balance.verified`. Requires the `OWNER` or `STAFF` role.
+
+<Note>
+  Only transactions with `status: FLOATING` and `type: INCOME` collected by the requesting user are affected.
+</Note>
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="message" type="string">Summary message including the number of transactions verified.</ResponseField>
+<ResponseField name="data" type="object">
+  <Expandable title="fields">
+    <ResponseField name="closingId" type="string">ObjectId of the DailyClosing record created.</ResponseField>
+    <ResponseField name="totalAmount" type="number">Total amount locked (PKR).</ResponseField>
+    <ResponseField name="transactionCount" type="number">Number of transactions promoted to VERIFIED.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## Transaction fields
+
+These fields are present on Transaction documents returned from the history and stats endpoints.
+
+<ResponseField name="_id" type="string">MongoDB ObjectId.</ResponseField>
+<ResponseField name="type" type="string">`INCOME`, `EXPENSE`, `CREDIT`, `LIABILITY`, `REFUND`, or other legacy types.</ResponseField>
+<ResponseField name="category" type="string">Category label (e.g. `Tuition`, `Teacher Payout`, `Rent`, `Salaries`, `Misc`).</ResponseField>
+<ResponseField name="amount" type="number">Amount in PKR.</ResponseField>
+<ResponseField name="description" type="string">Free-text description.</ResponseField>
+<ResponseField name="date" type="string">ISO 8601 transaction date.</ResponseField>
+<ResponseField name="status" type="string">`FLOATING`, `VERIFIED`, `CANCELLED`, or `REFUNDED`.</ResponseField>
+<ResponseField name="collectedBy" type="string">ObjectId of the User who recorded the transaction.</ResponseField>
+<ResponseField name="studentId" type="string">ObjectId of the related Student (if applicable).</ResponseField>
+<ResponseField name="splitDetails" type="object">
+  Revenue-split metadata written during fee collection.
+  <Expandable title="fields">
+    <ResponseField name="teacherShare" type="number">Amount allocated to the teacher (PKR).</ResponseField>
+    <ResponseField name="academyShare" type="number">Amount retained by the academy (PKR).</ResponseField>
+    <ResponseField name="teacherId" type="string">ObjectId of the teacher in the split.</ResponseField>
+    <ResponseField name="teacherName" type="string">Denormalised teacher name.</ResponseField>
+  </Expandable>
+</ResponseField>
+<ResponseField name="createdAt" type="string">ISO 8601 creation timestamp.</ResponseField>

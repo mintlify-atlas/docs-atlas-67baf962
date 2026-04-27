@@ -1,0 +1,87 @@
+---
+title: 'Gatekeeper: Barcode Scanning Entry Terminal'
+description: 'A full-screen barcode scanning terminal at the academy entrance that verifies student eligibility, enforces fee and schedule rules, and auto-marks attendance.'
+---
+
+The Gatekeeper is a full-screen security terminal designed to be operated at the physical entrance of the academy. When a student presents their barcode card, the terminal verifies their eligibility in real time and shows an immediate colour-coded result—green for entry permitted, orange for a fee warning, or red for denial. Successful scans automatically record attendance without any additional admin action. See [Attendance Management](/modules/attendance) for how those records appear in the dashboard.
+
+## Scan flow
+
+Every scan follows the same multi-step verification pipeline, executed by `POST /api/gatekeeper/scan`.
+
+<Steps>
+  <Step title="Identify the student">
+    The terminal accepts three input formats: a receipt token (prefixed `TOKEN-`), a numeric student ID, or a barcode ID. The controller first checks for a token match against the student's print history, then falls back to matching `barcodeId` or `studentId` in the database. If no student is found, the scan is rejected immediately.
+  </Step>
+  <Step title="Query the timetable for the current session">
+    If the student has a linked class, the controller queries the Timetable collection for any entry scheduled for the current day and time in Pakistan Standard Time (UTC+5). If a matching session is found, its subject, teacher, room, and times are attached to the scan result and written to the attendance record.
+  </Step>
+  <Step title="Check student status">
+    Students with a status of **Expelled** or **Suspended** are denied entry immediately. The terminal shows a red screen with the denial reason.
+  </Step>
+  <Step title="Check fee status">
+    If the student's fee status is `pending` and their paid amount is zero, they are a full defaulter and are denied entry. Students with a `partial` fee status are allowed through but the terminal shows an orange warning screen with the outstanding balance.
+  </Step>
+  <Step title="Check class schedule">
+    The controller compares the current day and time against the student's class schedule. Entry is allowed from **60 minutes before** the class starts until **15 minutes after** it ends. Scans outside this window are denied with a reason of `TOO_EARLY`, `TOO_LATE`, or `NO_CLASS_TODAY`. If the student's class has no schedule configured, entry is allowed by default.
+  </Step>
+  <Step title="Auto-mark attendance">
+    Once all checks pass, the controller writes a Present record to the Attendance collection (marked by Gatekeeper). If an attendance record already exists for today, it is returned unchanged and the response includes `alreadyMarked: true`.
+  </Step>
+  <Step title="Return scan result">
+    The full response is returned to the terminal, including the `scanResult.statusColor` field that drives the screen colour, the student's photo URL, financial summary, current session, and attendance status.
+  </Step>
+</Steps>
+
+<Note>
+Attendance marking is non-blocking. If writing the attendance record fails for any reason (for example, a transient database error), the scan still succeeds and the student is admitted. The error is logged server-side but does not affect the terminal response.
+</Note>
+
+## Scan result states
+
+| Colour | Terminal state | Triggers | Displayed information |
+|---|---|---|---|
+| **GREEN** | `success` | Student passes all checks and balance is zero | Student photo, name, class, financial summary (PAID), current session (subject, teacher, room, times), attendance status (MARKED PRESENT or ALREADY MARKED) |
+| **ORANGE** | `warning` | Student passes checks but has a partial fee balance | Same as GREEN plus the outstanding balance amount and a fee warning; attendance is still marked |
+| **RED** | `denied` | Expelled/Suspended status, full fee defaulter, or outside class schedule window | Denial reason (e.g. `FEES_PENDING`, `SUSPENDED`, `TOO_EARLY`), student name, and relevant context (schedule times, balance) |
+
+## Student photo resolution
+
+The terminal uses a `resolvePhoto()` helper to display student photos reliably. Because the backend stores photos as relative paths (for example `/uploads/students/profile-260001-1723456789.jpg`), the helper prepends `API_BASE_URL` before passing the URL to an `<img>` element. External URLs starting with `http` or `data:` pass through unchanged. If a student has no photo, a DiceBear avatar is generated from the student ID as a fallback.
+
+```typescript
+const resolvePhoto = (photo: string | undefined, studentId: string) => {
+  if (!photo) return "https://api.dicebear.com/7.x/avataaars/svg?seed=" + studentId;
+  if (photo.startsWith("http") || photo.startsWith("data:")) return photo;
+  return `${API_BASE_URL}${photo}`;
+};
+```
+
+This helper is applied on all three result screens so that photos uploaded via the Student Portal appear correctly in the Gatekeeper without any additional cache invalidation.
+
+## Auto-reset behaviour
+
+After displaying a scan result, the terminal automatically resets to standby after **5 seconds**. Tapping anywhere on the result screen resets it immediately. The hidden text input regains focus on reset so the next barcode scan can begin without any manual interaction.
+
+## Audio feedback
+
+The terminal plays distinct audio tones for each outcome using the Web Audio API:
+
+- **Green (success):** Two-tone ascending chime
+- **Orange (warning):** Double alert tone
+- **Red (denied):** Low buzzer
+
+Audio can be toggled on or off using the speaker icon in the terminal's top bar.
+
+<Tip>
+Each student record has a `barcodeId` field that is separate from `studentId`. The `barcodeId` is generated by the admin via `POST /api/gatekeeper/generate-barcode/:id` and is what gets encoded on the physical card. Using a dedicated `barcodeId` means a student's card can be re-issued (with a new `barcodeId`) without changing their `studentId`, which preserves all historical records.
+</Tip>
+
+## API reference
+
+| Method | Path | Roles | Description |
+|---|---|---|---|
+| `POST` | `/api/gatekeeper/scan` | OWNER, OPERATOR, ADMIN, STAFF, PARTNER | Process a barcode scan and return a verification result |
+| `GET` | `/api/gatekeeper/search` | OWNER, OPERATOR, ADMIN, STAFF, PARTNER | Search for a student by name, ID, phone, or barcode |
+| `POST` | `/api/gatekeeper/generate-barcode/:id` | OWNER, OPERATOR, ADMIN | Generate or regenerate a `barcodeId` for a student |
+| `POST` | `/api/gatekeeper/reprint/:id` | OWNER, OPERATOR, ADMIN | Record a card reprint and increment the reprint counter |

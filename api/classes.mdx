@@ -1,0 +1,265 @@
+---
+title: "Classes API — Manage Academic Classes and Schedules"
+description: "Create and manage class instances with scheduling, capacity, subject assignments, and teacher mappings. Each class response includes live student enrollment counts and collected revenue figures."
+---
+
+The Classes API manages the academic class instances that students enroll in. A class ties together a grade level, academic group, timetable schedule, room, and one or more teacher-subject assignments. When creating or updating a class, the system checks for room scheduling conflicts before saving.
+
+All list and single-class responses include computed fields — student count and revenue figures — aggregated in real time from the Student collection.
+
+## Endpoints
+
+### List all classes
+
+```
+GET /api/classes
+```
+
+Returns all class documents with computed enrollment and revenue statistics. Results are sorted by creation date (newest first).
+
+**Query parameters**
+
+<ParamField query="status" type="string">
+  Filter by class status: `active` or `inactive`. Omit for all.
+</ParamField>
+
+<ParamField query="session" type="string">
+  Filter by academic session ObjectId. Omit or pass `"all"` for all sessions.
+</ParamField>
+
+<ParamField query="assignedTeacher" type="string">
+  Filter to classes where the given teacher ObjectId is the assigned teacher or listed as a subject teacher.
+</ParamField>
+
+<ParamField query="search" type="string">
+  Case-insensitive substring search against `classTitle`, `gradeLevel`, `section`, and `roomNumber`.
+</ParamField>
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="count" type="number">Number of classes returned.</ResponseField>
+<ResponseField name="data" type="Class[]">
+  Array of class objects with computed stats. See [Class fields](#class-fields) and [Computed stats](#computed-stats).
+</ResponseField>
+
+---
+
+### Get a single class
+
+```
+GET /api/classes/:id
+```
+
+Returns one class by its MongoDB `_id`, including computed enrollment and revenue statistics.
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>
+  MongoDB ObjectId of the class.
+</ParamField>
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="data" type="object">Class document with computed stats.</ResponseField>
+
+---
+
+### Get class statistics overview
+
+```
+GET /api/classes/stats/overview
+```
+
+Returns top-level aggregate counts for all classes.
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="data" type="object">
+  <Expandable title="fields">
+    <ResponseField name="total" type="number">Total number of class documents.</ResponseField>
+    <ResponseField name="active" type="number">Classes with `status: "active"`.</ResponseField>
+    <ResponseField name="totalStudents" type="number">All enrolled students across all classes.</ResponseField>
+    <ResponseField name="totalRevenue" type="number">Sum of `paidAmount` across all students (PKR).</ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+### Create a class
+
+```
+POST /api/classes
+```
+
+Creates a new class instance. A `classId` is auto-generated (format `CLS-001`) — do not submit one in the request body.
+
+If `days`, `startTime`, `endTime`, and `roomNumber` are all provided, the system performs a hard conflict check: if the room is already occupied by another active class at an overlapping time on any of the same days, the request is rejected with `409 Conflict`.
+
+**Request body**
+
+<ParamField body="classTitle" type="string" required>
+  Unique title for the class, e.g. `"10th Medical Batch A"`.
+</ParamField>
+
+<ParamField body="gradeLevel" type="string" required>
+  One of: `9th Grade`, `10th Grade`, `11th Grade`, `12th Grade`, `MDCAT Prep`, `ECAT Prep`, `Tuition Classes`.
+</ParamField>
+
+<ParamField body="group" type="string" required>
+  Academic stream: `Pre-Medical`, `Pre-Engineering`, `Computer Science`, `Arts`, or `Science`.
+</ParamField>
+
+<ParamField body="session" type="string" required>
+  ObjectId of the academic Session this class belongs to.
+</ParamField>
+
+<ParamField body="startTime" type="string" required>
+  Class start time in 24-hour format (`HH:MM`), e.g. `"16:00"`.
+</ParamField>
+
+<ParamField body="endTime" type="string" required>
+  Class end time in 24-hour format (`HH:MM`).
+</ParamField>
+
+<ParamField body="days" type="string[]">
+  Days the class runs. Valid values: `Mon`, `Tue`, `Wed`, `Thu`, `Fri`, `Sat`, `Sun`.
+</ParamField>
+
+<ParamField body="roomNumber" type="string">
+  Room identifier. Defaults to `"TBD"`. Conflict detection is skipped when the room is `"TBD"`.
+</ParamField>
+
+<ParamField body="shift" type="string">
+  Optional shift label: `Morning`, `Evening`, `Weekend`, `Batch A`, `Batch B`, or `Batch C`.
+</ParamField>
+
+<ParamField body="subjects" type="array">
+  Array of subject objects (`{ name: string, fee: number }`) or a comma-separated string of subject names. Duplicate subject names (case-insensitive) are removed automatically, keeping the one with the higher fee.
+</ParamField>
+
+<ParamField body="baseFee" type="number">
+  Default monthly fee per subject in PKR. Applied to subjects that don't specify their own fee.
+</ParamField>
+
+<ParamField body="assignedTeacher" type="string">
+  ObjectId of the primary assigned teacher.
+</ParamField>
+
+<ParamField body="subjectTeachers" type="array">
+  Per-subject teacher assignments for multi-teacher classes. Each element: `{ subject: string, teacherId: string, teacherName: string }`.
+</ParamField>
+
+<ParamField body="revenueMode" type="string">
+  How teacher earnings are calculated: `"percentage"` (default) or `"fixed-per-student"`.
+</ParamField>
+
+<ParamField body="teacherRatePerStudent" type="number">
+  Fixed PKR amount per enrolled student paid to each teacher. Only used when `revenueMode` is `"fixed-per-student"`.
+</ParamField>
+
+<ParamField body="maxCapacity" type="number">
+  Maximum student capacity (default: 30).
+</ParamField>
+
+**Response** — `201 Created`
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="message" type="string">`"Class created successfully"`</ResponseField>
+<ResponseField name="data" type="object">Saved class document with `studentCount: 0` and `currentRevenue: 0`.</ResponseField>
+
+---
+
+### Update a class
+
+```
+PUT /api/classes/:id
+```
+
+Updates any fields on an existing class. Schedule conflict detection runs again if the schedule-related fields change. `classId` and `_id` are stripped from the update to prevent overriding the auto-generated identifier.
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>MongoDB ObjectId of the class.</ParamField>
+
+**Request body** — any subset of the create body fields.
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="message" type="string">`"Class updated successfully"`</ResponseField>
+<ResponseField name="data" type="object">Updated class document with current `studentCount` and `currentRevenue`.</ResponseField>
+
+---
+
+### Delete a class
+
+```
+DELETE /api/classes/:id
+```
+
+Permanently removes the class document and all associated timetable entries. Enrolled students are **not** automatically removed.
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>MongoDB ObjectId of the class.</ParamField>
+
+**Response**
+
+<ResponseField name="success" type="boolean" />
+<ResponseField name="message" type="string">`"Class and timetable entries deleted successfully"`</ResponseField>
+<ResponseField name="data" type="object">The deleted class document.</ResponseField>
+
+---
+
+## Class fields
+
+<ResponseField name="_id" type="string">MongoDB ObjectId.</ResponseField>
+<ResponseField name="classId" type="string">Auto-generated identifier (format `CLS-001`).</ResponseField>
+<ResponseField name="classTitle" type="string">Unique human-readable class title.</ResponseField>
+<ResponseField name="gradeLevel" type="string">Grade level enum value.</ResponseField>
+<ResponseField name="group" type="string">Academic stream.</ResponseField>
+<ResponseField name="shift" type="string">Shift label (optional).</ResponseField>
+<ResponseField name="session" type="string">ObjectId or populated Session object.</ResponseField>
+<ResponseField name="days" type="string[]">Days the class runs (abbreviated, e.g. `["Mon", "Wed", "Fri"]`).</ResponseField>
+<ResponseField name="startTime" type="string">Start time string (HH:MM).</ResponseField>
+<ResponseField name="endTime" type="string">End time string (HH:MM).</ResponseField>
+<ResponseField name="roomNumber" type="string">Room identifier.</ResponseField>
+<ResponseField name="maxCapacity" type="number">Maximum students allowed.</ResponseField>
+<ResponseField name="enrolledCount" type="number">Stored enrolled count (may lag behind `studentCount`).</ResponseField>
+<ResponseField name="assignedTeacher" type="string">ObjectId of the primary teacher.</ResponseField>
+<ResponseField name="teacherName" type="string">Denormalised teacher name.</ResponseField>
+<ResponseField name="revenueMode" type="string">`"percentage"` or `"fixed-per-student"`.</ResponseField>
+<ResponseField name="teacherRatePerStudent" type="number">Fixed rate per student (fixed-per-student mode only).</ResponseField>
+<ResponseField name="subjects" type="object[]">
+  <Expandable title="fields">
+    <ResponseField name="name" type="string">Subject name.</ResponseField>
+    <ResponseField name="fee" type="number">Monthly fee for this subject (PKR).</ResponseField>
+  </Expandable>
+</ResponseField>
+<ResponseField name="subjectTeachers" type="object[]">
+  <Expandable title="fields">
+    <ResponseField name="subject" type="string">Subject name.</ResponseField>
+    <ResponseField name="teacherId" type="string">ObjectId of the teacher for this subject.</ResponseField>
+    <ResponseField name="teacherName" type="string">Denormalised teacher name.</ResponseField>
+  </Expandable>
+</ResponseField>
+<ResponseField name="baseFee" type="number">Default monthly fee per subject (PKR).</ResponseField>
+<ResponseField name="status" type="string">`active` or `inactive`.</ResponseField>
+<ResponseField name="createdAt" type="string">ISO 8601 creation timestamp.</ResponseField>
+<ResponseField name="updatedAt" type="string">ISO 8601 last-updated timestamp.</ResponseField>
+
+## Computed stats
+
+These fields are computed at query time and appended to every class response.
+
+<ResponseField name="studentCount" type="number">Number of active students (excludes Withdrawn, Expelled, Suspended) currently enrolled in this class.</ResponseField>
+<ResponseField name="enrolledStudents" type="number">Alias for `studentCount`.</ResponseField>
+<ResponseField name="currentRevenue" type="number">Sum of `paidAmount` for all active enrolled students (PKR).</ResponseField>
+<ResponseField name="totalRevenueCollected" type="number">Alias for `currentRevenue`.</ResponseField>
+<ResponseField name="totalExpected" type="number">Sum of `totalFee` for all active enrolled students (PKR).</ResponseField>
+<ResponseField name="totalPending" type="number">`totalExpected − currentRevenue` (PKR).</ResponseField>
+<ResponseField name="estimatedTeacherShare" type="number">Estimated teacher earnings based on the global teacher share percentage applied to `currentRevenue` (PKR).</ResponseField>
+<ResponseField name="teacherSharePct" type="number">The teacher share percentage used for the estimate (from global Settings).</ResponseField>

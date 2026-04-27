@@ -1,0 +1,111 @@
+---
+title: "Managing Teachers: Profiles, Compensation, and Earnings"
+description: "Add teachers, configure percentage or fixed compensation packages, track wallet balances, and process payouts from the teacher profile and payroll dashboards."
+---
+
+The Teachers module manages every instructor at the academy, from personal details and subject specialisation to earnings tracking and payout history. When a fee is collected from a student, the system automatically credits the assigned teacher's wallet based on their compensation package. Administrators can view accumulated earnings, process payouts, and reset credentials from the Teachers page (`/teachers`).
+
+## Teacher fields
+
+<CardGroup cols={2}>
+  <Card title="Identity" icon="user">
+    **name** — Full name (required)
+
+    **phone** — Contact number (required)
+
+    **subject** — Subject specialisation, pulled from academy configuration
+
+    **joiningDate** — Date the teacher joined
+
+    **status** — `active`, `inactive`, or `suspended`
+
+    **username** — Auto-generated login handle (e.g. `ahmedkhan4821`)
+
+    **profileImage** — Photo URL or base64 string
+  </Card>
+  <Card title="Compensation" icon="dollar-sign">
+    **compensation.type** — `percentage`, `fixed`, or `hybrid`
+
+    **compensation.teacherShare** — Teacher's percentage cut (percentage mode)
+
+    **compensation.academyShare** — Academy's percentage cut (percentage mode)
+
+    **compensation.fixedSalary** — Fixed monthly amount (fixed mode)
+
+    **compensation.baseSalary** — Base salary component (hybrid mode)
+
+    **compensation.profitShare** — Bonus percentage on top of base (hybrid mode)
+  </Card>
+  <Card title="Wallet" icon="wallet">
+    **balance.floating** — Unverified earnings pending day-close
+
+    **balance.verified** — Verified earnings available for payout
+
+    **balance.pending** — Accumulated amount owed to the teacher
+
+    **totalPaid** — Lifetime total paid out to this teacher
+  </Card>
+  <Card title="Virtual" icon="calculator">
+    **compensationSummary** — Human-readable description of the package, e.g. `70% / 30% Split` or `PKR 25,000 /month`
+  </Card>
+</CardGroup>
+
+## Adding a teacher
+
+Click **+ Add Teacher** on the Teachers page to open the Add Teacher modal.
+
+1. Enter the teacher's name, phone number, and subject specialisation.
+2. Select the compensation type and fill in the relevant fields:
+   - **Percentage** — enter teacher share and academy share (must sum to 100).
+   - **Fixed** — enter the monthly salary amount.
+   - **Hybrid** — enter a base salary and a profit-share percentage.
+3. Optionally upload a profile photo.
+4. Click **Save**. The system creates a linked `User` account with an auto-generated username and an 8-character random password. The credentials are shown once in the response — save them before closing the modal.
+
+<Warning>
+  Login credentials are displayed only at the moment of creation. If lost, use the **Reset Password** button on the teacher's credential panel.
+</Warning>
+
+## Compensation and revenue share
+
+The default compensation mode is **percentage**, with a default teacher share of **70%** (30% to the academy). These defaults come from global Settings and can be overridden per teacher.
+
+When a student fee is collected, `feeSplitCalculator` calculates each teacher's share based on the class revenue model:
+
+- **Percentage mode** — the collected amount is multiplied by `teacherShare / 100` and credited to `balance.pending`.
+- **Fixed-per-student mode** — each teacher assigned to the class receives a flat `teacherRatePerStudent` amount per enrolled student, regardless of the fee collected.
+- **Hybrid mode** — the base salary is accrued per session; the profit-share percentage is applied to fee income on top.
+
+If a student is withdrawn and a refund is issued, the teacher's share is reversed proportionally.
+
+For payout processing, see [Payroll](/modules/payroll).
+
+## Teacher statuses
+
+| Status | Meaning |
+|---|---|
+| `active` | Teacher is currently teaching and receiving earnings |
+| `inactive` | Teacher is no longer active; excluded from class assignments |
+| `suspended` | Temporarily suspended; credentials remain but class assignments are paused |
+
+## Teacher profile page
+
+Navigating to `/teachers/:id` opens the full teacher profile, which shows:
+
+- Personal and contact details
+- Compensation package summary
+- Classes assigned to this teacher (current session)
+- Enrolled student count across all their classes
+- Total revenue collected from their students
+- Teacher's share of that revenue
+- Wallet balance and payout history
+- Credential management (view username, reset password)
+
+## Linking teachers to classes and subjects
+
+Teachers are linked to classes in two ways:
+
+1. **Primary teacher** — set via `assignedTeacher` on the Class record. This teacher receives the full class revenue split.
+2. **Subject-level teacher** — configured in `subjectTeachers` on the Class record, mapping each subject to a specific teacher. This allows multi-teacher classes where earnings are distributed per subject.
+
+When a student is enrolled, the system automatically copies the class's `assignedTeacher` to `student.assignedTeacher` so that fee splits resolve correctly even if the class assignment changes later.

@@ -1,0 +1,199 @@
+---
+title: Fee Records — Payment Collection and History
+description: Collect fee payments against a student's balance, retrieve full payment history, and inspect auto-generated receipts and revenue split breakdowns.
+---
+
+The Fee Records API handles all financial transactions at the student level. When a fee is collected, the system creates a `FeeRecord` document, increments the student's `paidAmount`, records an `INCOME` transaction in the ledger, notifies the OWNER, and updates the collector's cash total for daily closing. Every payment produces an auto-generated receipt number in the `FEE-YYYYMM-XXXX` format.
+
+## FeeRecord object
+
+<ResponseField name="_id" type="string" required>
+  MongoDB document ID of the fee record.
+</ResponseField>
+
+<ResponseField name="student" type="string" required>
+  MongoDB `_id` reference to the Student document.
+</ResponseField>
+
+<ResponseField name="studentName" type="string" required>
+  Denormalized student name for fast display without joins.
+</ResponseField>
+
+<ResponseField name="className" type="string" required>
+  Denormalized class name at the time of payment.
+</ResponseField>
+
+<ResponseField name="subject" type="string">
+  Subject for which the fee is recorded. Defaults to `"General"` when not explicitly provided.
+</ResponseField>
+
+<ResponseField name="amount" type="number" required>
+  The fee amount collected. Must be greater than zero and must not exceed the student's remaining balance.
+</ResponseField>
+
+<ResponseField name="month" type="string" required>
+  The billing month for this payment (e.g., `"April 2026"`). Free-form string — the frontend is expected to pass the current month.
+</ResponseField>
+
+<ResponseField name="status" type="string" required>
+  Payment status. One of `"PAID"`, `"PENDING"`, or `"REFUNDED"`. New records are always created with `"PAID"`.
+</ResponseField>
+
+<ResponseField name="collectedBy" type="string">
+  MongoDB `_id` reference to the User who collected the fee.
+</ResponseField>
+
+<ResponseField name="collectedByName" type="string">
+  Denormalized name of the collecting staff member.
+</ResponseField>
+
+<ResponseField name="teacher" type="string">
+  MongoDB `_id` reference to the Teacher assigned to the student's class.
+</ResponseField>
+
+<ResponseField name="teacherName" type="string">
+  Denormalized name of the assigned teacher.
+</ResponseField>
+
+<ResponseField name="paymentMethod" type="string" required>
+  Method used for collection. One of `"CASH"`, `"BANK"`, or `"ONLINE"`. Defaults to `"CASH"`.
+</ResponseField>
+
+<ResponseField name="receiptNumber" type="string" required>
+  Auto-generated unique receipt identifier. Format: `FEE-YYYYMM-XXXX` (e.g., `"FEE-202604-7823"`). Set by the pre-save hook on first save.
+</ResponseField>
+
+<ResponseField name="notes" type="string">
+  Optional free-text notes about the payment. Maximum 500 characters.
+</ResponseField>
+
+<ResponseField name="splitBreakdown" type="object">
+  Revenue split details. Populated when auto-split is applied based on the class revenue model.
+  <Expandable title="properties">
+    <ResponseField name="teacherShare" type="number">
+      Amount credited to the teacher.
+    </ResponseField>
+    <ResponseField name="academyShare" type="number">
+      Amount retained by the academy.
+    </ResponseField>
+    <ResponseField name="teacherPercentage" type="number" default="70">
+      Teacher's percentage share. Default is `70`.
+    </ResponseField>
+    <ResponseField name="academyPercentage" type="number" default="30">
+      Academy's percentage share. Default is `30`.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="createdAt" type="string">
+  ISO 8601 timestamp of when the record was created.
+</ResponseField>
+
+<ResponseField name="updatedAt" type="string">
+  ISO 8601 timestamp of the most recent update.
+</ResponseField>
+
+---
+
+## POST /api/students/:id/collect-fee
+
+Records a fee payment against a student's outstanding balance. Requires authentication.
+
+When this endpoint is called successfully, the following side effects occur atomically:
+
+- A `FeeRecord` is created with status `"PAID"` and an auto-generated receipt number.
+- The student's `paidAmount` is incremented and `feeStatus` is recalculated.
+- An `INCOME` / `FLOATING` transaction is written to the ledger.
+- A `FINANCE` notification is sent to the OWNER showing the amount paid and the new remaining balance. If the student transitions to `"paid"` status, a second "FULLY PAID" notification is also sent.
+- The collecting staff member's `totalCash` is incremented for daily closing verification.
+
+<Warning>
+  The API rejects any payment where the requested `amount` exceeds the student's remaining balance (`totalFee - paidAmount`). The error response will include the exact amounts: `"Amount (Rs. X) exceeds remaining balance (Rs. Y)"`. You must not collect more than what is owed.
+</Warning>
+
+### Path parameters
+
+<ParamField path="id" type="string" required>
+  The MongoDB `_id` of the student receiving the payment.
+</ParamField>
+
+### Request body
+
+<ParamField body="amount" type="number" required>
+  The payment amount. Must be greater than `0` and must not exceed the remaining balance.
+</ParamField>
+
+<ParamField body="month" type="string" required>
+  The billing month for this payment (e.g., `"April 2026"`).
+</ParamField>
+
+<ParamField body="paymentMethod" type="string" default="CASH">
+  Payment method. One of `"CASH"`, `"BANK"`, or `"ONLINE"`.
+</ParamField>
+
+<ParamField body="notes" type="string">
+  Optional notes to attach to the fee record. Maximum 500 characters.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean" required>
+  `true` when the payment is recorded.
+</ResponseField>
+
+<ResponseField name="message" type="string" required>
+  Confirmation message including the receipt number, e.g. `"Fee collected! Receipt: FEE-202604-7823"`.
+</ResponseField>
+
+<ResponseField name="data" type="object" required>
+  <Expandable title="properties">
+    <ResponseField name="feeRecord" type="object">
+      The newly created FeeRecord document. See the [FeeRecord object](#feerecord-object) reference above for field details.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<Note>
+  Receipt numbers follow the pattern `FEE-YYYYMM-XXXX` where `YYYYMM` is the year and zero-padded month of the transaction date, and `XXXX` is a zero-padded random 4-digit number (e.g., `FEE-202604-0042`). Receipt numbers are unique across the database.
+</Note>
+
+### Example
+
+```bash
+curl --request POST \
+  --url https://your-api.example.com/api/students/664a1f3e2b4c5d6e7f8a9b0c/collect-fee \
+  --header 'Content-Type: application/json' \
+  --cookie ./cookies.txt \
+  --data '{
+    "amount": 7500,
+    "month": "April 2026",
+    "paymentMethod": "CASH",
+    "notes": "Monthly installment"
+  }'
+```
+
+---
+
+## GET /api/students/:id/fee-history
+
+Returns all fee payment records for a student, sorted from most recent to oldest. Requires authentication.
+
+### Path parameters
+
+<ParamField path="id" type="string" required>
+  The MongoDB `_id` of the student whose payment history you want to retrieve.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean" required>
+  `true` on success.
+</ResponseField>
+
+<ResponseField name="count" type="number" required>
+  Total number of fee records returned.
+</ResponseField>
+
+<ResponseField name="data" type="object[]" required>
+  Array of FeeRecord objects sorted by `createdAt` descending. See the [FeeRecord object](#feerecord-object) reference above.
+</ResponseField>
